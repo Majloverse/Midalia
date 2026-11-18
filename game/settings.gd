@@ -87,6 +87,44 @@ const BETRAY_STEAL_CHANCE := 0.35
 const STEAL_SHARE_MIN := 0.10
 const STEAL_SHARE_MAX := 0.30
 
+# --- A room of your own (the second quest) ---
+## Days between rent payments. The first week is paid when you move in.
+const RENT_DAYS := 7
+## Weekly rent when someone you asked lets you have their spare room.
+const ROOM_RENT_FRIEND := 90
+## Weekly rents of the rooms advertised on the university notice board.
+const ROOM_RENTS_BOARD := [140, 165, 190]
+## A room is a bigger ask than a couch: taken off the chance of a yes.
+const ROOM_ASK_PENALTY := 0.2
+## Added to the chance when the person is your friend.
+const ROOM_FRIEND_BONUS := 0.25
+const EVICTED_WELLBEING := -10
+## Hour from which you can go to bed at home.
+const BED_FROM_HOUR := 21
+## What a two-faced flatmate does on any one night you sleep at home (at most one of these).
+const FLATMATE_STEAL_CHANCE := 0.10
+const FLATMATE_GOSSIP_CHANCE := 0.12
+const FLATMATE_RENT_UP_CHANCE := 0.08
+const FLATMATE_KICK_OUT_CHANCE := 0.05
+## Nights at home before the rent can go up or you can be kicked out.
+const FLATMATE_SAFE_NIGHTS := 1
+## Wellbeing lost when you find out what your flatmate has been saying about you.
+const GOSSIP_WELLBEING := -8
+## How much the rent goes up by, as a share of the rent. It happens once.
+const RENT_UP_SHARE := 0.25
+## Hour of the evening a flatmate texts that you have to be out tonight.
+const KICK_OUT_HOUR := 19
+
+# --- Food ---
+## A meal at the station bar.
+const MEAL_PRICE := 12
+const MEAL_WELLBEING := 5
+## Cooking in your own kitchen, once you have a room.
+const COOK_PRICE := 4
+const COOK_WELLBEING := 3
+## Lost when you wake up after a day without eating.
+const HUNGRY_WELLBEING := -10
+
 # --- Passing out on the street ---
 ## The damage wheel's segments: wellbeing lost.
 const STREET_DAMAGE := [10, 20, 30, 40]

@@ -2,7 +2,7 @@ class_name Rules
 ## The game's rules decide what happens. The language model never does.
 
 const TONES := ["nice", "banter", "too_nice", "mean"]
-const REQUESTS := ["none", "shelter", "loan", "info"]
+const REQUESTS := ["none", "room", "shelter", "loan", "info"]
 
 ## The decisive words of a reply are written here, never by the language model,
 ## so the player always knows what happened. One is picked at random.
@@ -10,6 +10,8 @@ const OPENERS := {
 	"mean": ["wow ok. not helping you.", "nah. don't text me like that.", "lol no. bye."],
 	"shelter_yes": ["yeah sure, you can crash on my couch tonight.", "ok fine, the couch is yours tonight.", "sure, come over, you can sleep here."],
 	"shelter_no": ["nah sorry, can't have you over tonight.", "not tonight, sorry.", "sorry, no space at mine."],
+	"room_yes": ["ok, you can have the spare room. %d euro a week.", "yeah alright, the spare room is yours for %d euro a week.", "fine, we need a flatmate anyway. %d euro a week."],
+	"room_no": ["nah sorry, the room's not free.", "sorry, we're not looking for a flatmate.", "no can do, the room's taken."],
 	"loan_yes": ["ok, i can lend you %d euro.", "fine, i'll give you %d euro.", "alright, %d euro, but i want it back."],
 	"loan_no": ["sorry, can't lend you anything right now.", "nah, no money to spare.", "can't, i'm broke too."],
 	"info_yes": ["yeah i know, i'll tell you.", "sure, i can help with that."],
@@ -76,19 +78,30 @@ static func resolve(person: Person, tone: String, request: String, in_person: bo
 	chance += state.street_cred * Settings.GRANT_PER_CRED
 	if in_person:
 		chance += Settings.GRANT_IN_PERSON_BONUS
+	if request == "room":
+		chance -= Settings.ROOM_ASK_PENALTY
+		if person.is_friend:
+			chance += Settings.ROOM_FRIEND_BONUS
 	chance = clampf(chance, 0.0, 0.95)
 	result.chance = chance
-	result.granted = rng.randf() < chance
+	# Someone who has already offered you a room doesn't take it back for asking again.
+	result.granted = rng.randf() < chance or (request == "room" and person.room_rent > 0)
 
-	var ask: String = {"shelter": "a place to sleep tonight", "loan": "to borrow some money", "info": "for information"}[request]
+	var ask: String = {"room": "to rent a room in your flat", "shelter": "a place to sleep tonight", "loan": "to borrow some money", "info": "for information"}[request]
+	var amount: int = Settings.LOAN_AMOUNT
 	if result.granted:
 		match request:
+			"room":
+				if person.room_rent <= 0:
+					person.room_rent = Settings.ROOM_RENT_FRIEND
+				amount = person.room_rent
+				person.remember("You said they can rent the spare room in your flat for %d euro a week." % amount)
 			"shelter": person.remember("You offered them your couch for tonight.")
 			"loan":
 				result.cash += Settings.LOAN_AMOUNT
 				person.remember("You lent them %d euro and they owe you." % Settings.LOAN_AMOUNT)
 			"info": person.remember("You gave them some useful info.")
-		result.opener = _pick(request + "_yes", rng, Settings.LOAN_AMOUNT)
+		result.opener = _pick(request + "_yes", rng, amount)
 		result.summary = "Asked for %s: yes" % request
 	else:
 		result.wellbeing += Settings.REJECTED_WELLBEING
@@ -124,7 +137,7 @@ static func _family(person: Person, tone: String, request: String, state, rng: R
 		result.summary = "Sister is %s today" % ("nasty" if person.nasty else "nice")
 		return result
 
-	if request == "shelter":
+	if request == "shelter" or request == "room":
 		result.opener = _pick("family_shelter", rng)
 		result.summary = "Family can't house you"
 	elif request == "loan":

@@ -37,11 +37,14 @@ func set_prompt(text: String) -> void:
 
 func show_message(text: String) -> void:
 	_message.text = text
-	_message_time = 5.0
+	# Longer messages stay up longer.
+	_message_time = maxf(5.0, text.length() * 0.06)
 
 
 func _refresh() -> void:
 	_stats.text = "Day %d   %s\nWellbeing %d%%\nCash %d euro" % [Game.day, Game.clock_text(), Game.wellbeing, Game.cash]
+	if not Game.ate_today:
+		_stats.text += "\nNot eaten today"
 
 
 func _label(preset: Control.LayoutPreset, size: int) -> Label:

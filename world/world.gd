@@ -60,6 +60,8 @@ var _npcs := {}         # Person -> their body in the world
 var _inside := ""       # the sign of the building the player is in, or "" on the street
 var _game_over := false
 
+signal _chosen(index: int)
+
 
 func _ready() -> void:
 	_build_sky()
@@ -97,6 +99,10 @@ func _ready() -> void:
 	Game.notice.connect(_hud.show_message)
 	Game.shelter_changed.connect(_refresh_flat_doors)
 	Game.night_ended.connect(_on_night_ended)
+	Game.home_lost.connect(_on_home_lost)
+	if Game.flatmate != null:
+		_bring_home(Game.flatmate)
+	_refresh_flat_doors()
 	if Game.loaded_from_save:
 		# Carry on from where you last woke up.
 		_inside = Game.saved_inside
@@ -108,7 +114,7 @@ func _ready() -> void:
 		_inside = "STAZIONE CENTRALE"
 		_player.teleport(_interiors[_inside].arrival, -PI / 2)
 		_player.set_camera_distance(Settings.CAMERA_DISTANCE_INDOORS)
-		_hud.show_message("You just got off the train in Milan. The party at Via Roma 12 starts at 21:00. Tab for your phone.")
+		_hud.show_message("You just got off the train in Milan. The party at Via Roma 12 starts at 21:00.\nEat at the bar before you go: a day without food hurts. Tab for your phone.")
 
 
 func _process(_delta: float) -> void:
@@ -143,7 +149,7 @@ func _on_interact(area: Area3D) -> void:
 				_hud.show_message("Closed. It is open %d:00 to %d:00." % hours)
 		"notices":
 			var tuition := "Your tuition is paid." if Game.tuition_owed <= 0 else "You still owe %d euro in tuition. No payment, no exams." % Game.tuition_owed
-			_hud.show_message("Exams are on days 10, 20 and 30. Today is day %d. %s" % [Game.day, tuition])
+			_hud.show_message("Exams are on days 10, 20 and 30. Today is day %d. %s\n%s" % [Game.day, tuition, Game.read_board()])
 		"bank":
 			if Game.bank_is_open():
 				await _enter("BANCA")
@@ -161,22 +167,29 @@ func _on_interact(area: Area3D) -> void:
 			else:
 				_hud.show_message("Nobody answers. The party starts at 21:00.")
 		"flat":
-			var sign: String = area.get_meta("sign")
-			var host := Game.shelter_host
-			if host == null or host.home != sign:
-				_hud.show_message("A student flat. Nobody here has invited you.")
-			elif not Game.is_night():
-				_hud.show_message("%s isn't home. Come back tonight." % host.name)
-			else:
-				_bring_host_home(host)
-				await _enter(sign)
-				_hud.show_message("%s's place. The couch is yours." % host.name)
+			await _ring_bell(area.get_meta("sign"))
 		"leave":
 			_leave()
 		"talk":
 			_talk.open(area.get_meta("person"))
+		"eat":
+			_hud.show_message(Game.eat(Settings.MEAL_PRICE, Settings.MEAL_WELLBEING, "A panino and a coffee, standing at the bar."))
+		"cook":
+			if Game.home != _inside:
+				_hud.show_message("Not your kitchen. Hands off the pasta.")
+			else:
+				_hud.show_message(Game.eat(Settings.COOK_PRICE, Settings.COOK_WELLBEING, "Pasta with whatever was in the fridge."))
+		"bed":
+			if Game.home != _inside:
+				_hud.show_message("That's not your bed.")
+			elif Game.hour() < Settings.BED_FROM_HOUR and Game.hour() >= Settings.PASS_OUT_HOUR:
+				_hud.show_message("You're not tired yet. Bed is for after %d:00." % Settings.BED_FROM_HOUR)
+			else:
+				_sleep(area.get_meta("lie_at"), area.get_meta("lie_yaw"))
 		"sleep":
-			if Game.shelter_host == null or Game.shelter_host.home != _inside:
+			if Game.home == _inside:
+				_hud.show_message("You have a bed now. Use that.")
+			elif Game.shelter_host == null or Game.shelter_host.home != _inside:
 				_hud.show_message("You weren't invited to stay.")
 			else:
 				_sleep(area.get_meta("lie_at"), area.get_meta("lie_yaw"))
@@ -204,22 +217,121 @@ func _through_door(to: Vector3, yaw: float, camera_distance: float) -> void:
 	Game.modal_open = false
 
 
-## The host goes home when you do: their body moves from the party to their flat.
-func _bring_host_home(host: Person) -> void:
-	var npc: Node3D = _npcs[host]
-	var room: Node3D = _interiors[host.home].room
-	if npc.get_parent() != room:
+## The street door of a student flat: your home, tonight's couch, or a room you could rent.
+func _ring_bell(sign: String) -> void:
+	if Game.home == sign:
+		_bring_home(Game.flatmate)
+		await _enter(sign)
+		return
+	var host := Game.shelter_host
+	var couch := host != null and host.home == sign
+	var rooms: Array[Person] = []
+	if Game.home == "":
+		rooms = Game.rooms_at(sign)
+	if rooms.is_empty():
+		if not couch:
+			_hud.show_message("A student flat. Nobody here has invited you.")
+		elif not Game.is_night():
+			_hud.show_message("%s isn't home. Come back tonight." % host.name)
+		else:
+			await _go_to_couch(host)
+		return
+	var options: Array[String] = []
+	for person in rooms:
+		options.append("Move in with %s: %d euro a week" % [person.name, person.room_rent])
+	if couch and Game.is_night():
+		options.append("Just the couch tonight")
+	options.append("Not now")
+	var pick: int = await _choose("%s\n\nThe first week is paid on the spot, from your pocket first.\nAfter that the rent is due every %d days." % [sign.capitalize(), Settings.RENT_DAYS], options)
+	if pick >= rooms.size():
+		if options[pick] != "Not now":
+			await _go_to_couch(host)
+		return
+	var flatmate := rooms[pick]
+	if not Game.move_in(flatmate):
+		_hud.show_message("You can't pay the first week: %d euro." % flatmate.room_rent)
+		return
+	_bring_home(flatmate)
+	await _enter(sign)
+	_hud.show_message("You live here now, with %s. The bed and the kitchen are yours.\nNext rent: %d euro on day %d." % [flatmate.name, Game.rent, Game.rent_due_day])
+
+
+func _go_to_couch(host: Person) -> void:
+	_bring_home(host)
+	await _enter(host.home)
+	_hud.show_message("%s's place. The couch is yours." % host.name)
+
+
+## Puts someone in their own flat: a host when you go up to their couch, or your flatmate.
+func _bring_home(person: Person) -> void:
+	var room: Node3D = _interiors[person.home].room
+	if _npcs.has(person) and _npcs[person].get_parent() == room:
+		return
+	# Stand a little apart from anyone already there.
+	var others := _npcs.values().filter(func(n): return n.get_parent() == room).size()
+	var spot: Vector3 = _interiors[person.home].host_spot + Vector3(-1.1 * others, 0, 0)
+	if _npcs.has(person):
+		var npc: Node3D = _npcs[person]
 		npc.reparent(room)
-		npc.position = _interiors[host.home].host_spot
+		npc.position = spot
 		npc.rotation = Vector3.ZERO
 		npc.get_meta("figure").mood = "idle"
+	else:
+		_add_npc(person, room, spot, 0.0)
+
+
+## A few big buttons in the middle of the screen. Returns the number of the one pressed.
+func _choose(text: String, options: Array[String]) -> int:
+	Game.modal_open = true
+	Game.clock_running = false
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	var layer := CanvasLayer.new()
+	layer.layer = 20
+	add_child(layer)
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.8)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	layer.add_child(dim)
+	var column := VBoxContainer.new()
+	column.set_anchors_preset(Control.PRESET_FULL_RECT)
+	column.alignment = BoxContainer.ALIGNMENT_CENTER
+	column.add_theme_constant_override("separation", 14)
+	dim.add_child(column)
+	var label := Label.new()
+	label.text = text
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.add_theme_font_size_override("font_size", 24)
+	column.add_child(label)
+	for i in options.size():
+		var button := Button.new()
+		button.text = options[i]
+		button.custom_minimum_size = Vector2(420, 52)
+		button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		button.pressed.connect(func(): _chosen.emit(i))
+		column.add_child(button)
+	var pick: int = await _chosen
+	layer.queue_free()
+	Game.modal_open = false
+	Game.clock_running = true
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	return pick
+
+
+## Thrown out while you're in the flat: you find yourself on the doorstep.
+func _on_home_lost(sign: String) -> void:
+	if _inside == sign and not Game.modal_open:
+		await _leave()
 
 
 func _refresh_flat_doors() -> void:
 	for sign in _flat_doors:
 		var host := Game.shelter_host
 		var prompt := "Ring the bell"
-		if host != null and host.home == sign:
+		if Game.home == sign:
+			prompt = "Go home"
+		elif Game.home == "" and not Game.rooms_at(sign).is_empty():
+			prompt = "Ring the bell about the room"
+		elif host != null and host.home == sign:
 			prompt = "Go up to %s's flat" % host.name
 		_flat_doors[sign].set_meta("prompt", prompt)
 	_player.refresh_prompt()
@@ -227,6 +339,7 @@ func _refresh_flat_doors() -> void:
 
 ## Lie down, fade out, watch the night roll by, wake up.
 func _sleep(lie_at: Vector3, lie_yaw: float) -> void:
+	var at_home := Game.home != "" and _inside == Game.home
 	Game.modal_open = true
 	Game.clock_running = false
 	_hud.set_prompt("")
@@ -234,9 +347,13 @@ func _sleep(lie_at: Vector3, lie_yaw: float) -> void:
 	await get_tree().create_timer(0.5).timeout
 	await _transition.fade(1.0, 1.5)
 	await _transition.roll_clock(Game.minutes_until(Settings.WAKE_HOUR), 4.0, "z z z")
-	var text := Game.sleep_on_couch()
+	var text := Game.sleep_in_bed() if at_home else Game.sleep_on_couch()
+	text += Game.wake_up(at_home)
 	await _transition.fade(0.0, 1.5)
 	await _player.stand_up()
+	if at_home and Game.home == "":
+		# Couldn't pay the rent: you wake up to your bag by the door.
+		await _leave()
 	Game.modal_open = false
 	Game.clock_running = true
 	_player.refresh_prompt()
@@ -253,10 +370,15 @@ func _on_night_ended() -> void:
 		_bank.close()
 	if Game.phone_open:
 		_phone.toggle()
-	# Awake at 5:00 in a flat you were invited to: you drop onto the couch.
-	if Game.shelter_host != null and Game.shelter_host.home == _inside:
+	# Awake at 5:00 at home, or in a flat you were invited to: you drop onto the bed or the couch.
+	var onto := ""
+	if Game.home != "" and Game.home == _inside:
+		onto = "bed"
+	elif Game.shelter_host != null and Game.shelter_host.home == _inside:
+		onto = "sleep"
+	if onto != "":
 		for area in _interiors[_inside].room.get_children():
-			if area is Area3D and area.get_meta("action", "") == "sleep":
+			if area is Area3D and area.get_meta("action", "") == onto:
 				_sleep(area.get_meta("lie_at"), area.get_meta("lie_yaw"))
 				return
 	_pass_out()
@@ -304,8 +426,9 @@ func _pass_out() -> void:
 	Game.modal_open = false
 	Game.clock_running = true
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	var morning := Game.wake_up(false)
 	_autosave()
-	_hud.show_message("You wake up on the pavement. It's 9:00. Game saved.")
+	_hud.show_message("You wake up on the pavement. It's 9:00.%s Game saved." % morning)
 
 
 ## The game saves itself each time you wake up. There is one save and no manual saving.
@@ -493,19 +616,24 @@ func _build_interiors() -> void:
 		var person := Game.partygoers[n]
 		var spot: Vector3 = spots[n % spots.size()]
 		# Facing the middle of the room.
-		var npc := Build.person(party_room, spot, atan2(spot.x, spot.z), person.look)
-		npc.get_meta("figure").mood = "dance"
-		var tag := Label3D.new()
-		tag.text = person.name
-		tag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-		tag.font_size = 48
-		tag.pixel_size = 0.006
-		tag.outline_size = 12
-		tag.position.y = 2.15
-		npc.add_child(tag)
-		var reach := Build.trigger(npc, Vector3(0, 1, 0), Vector3(2.6, 2, 2.6), "Talk to %s" % person.name, "talk")
-		reach.set_meta("person", person)
-		_npcs[person] = npc
+		_add_npc(person, party_room, spot, atan2(spot.x, spot.z)).get_meta("figure").mood = "dance"
+
+
+## Someone you can walk up to and talk to, with their name over their head.
+func _add_npc(person: Person, room: Node3D, spot: Vector3, yaw: float) -> Node3D:
+	var npc := Build.person(room, spot, yaw, person.look)
+	var tag := Label3D.new()
+	tag.text = person.name
+	tag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	tag.font_size = 48
+	tag.pixel_size = 0.006
+	tag.outline_size = 12
+	tag.position.y = 2.15
+	npc.add_child(tag)
+	var reach := Build.trigger(npc, Vector3(0, 1, 0), Vector3(2.6, 2, 2.6), "Talk to %s" % person.name, "talk")
+	reach.set_meta("person", person)
+	_npcs[person] = npc
+	return npc
 
 
 func _build_lamp(at: Vector3) -> void:

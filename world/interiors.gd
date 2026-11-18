@@ -98,6 +98,11 @@ static func flat(parent: Node3D, origin: Vector3, wall: Color, accent: Color) ->
 	# Where the sleeper's feet go and which way their head points.
 	couch.set_meta("lie_at", origin + Vector3(-4.2, 0.6, -0.1))
 	couch.set_meta("lie_yaw", PI)
+	# The bed and the kitchen are for whoever lives here.
+	var bed := Build.trigger(room, Vector3(3.3, 1.0, -2.6), Vector3(2.8, 2.0, 2.6), "Go to bed", "bed")
+	bed.set_meta("lie_at", origin + Vector3(3.9, 0.77, -2.0))
+	bed.set_meta("lie_yaw", PI)
+	Build.trigger(room, Vector3(-0.6, 1.0, -2.8), Vector3(3.2, 2.0, 1.0), "Cook something", "cook")
 	return {"room": room, "entry": origin + Vector3(0, 0.1, 1.4), "host_spot": Vector3(0.8, 0, -0.6)}
 
 
@@ -256,8 +261,7 @@ static func station(parent: Node3D, origin: Vector3) -> Dictionary:
 		Build.box(room, Vector3(x, 0.38, 4.5), Vector3(0.35, 0.06, 0.35), Color(0.6, 0.1, 0.12))
 		Build.box(room, Vector3(x, 0.18, 4.5), Vector3(0.07, 0.36, 0.07), METAL)
 	Build.person(room, Vector3(7.5, 0, 6.2), 0.0, Body.random_look(rng))                                 # barista
-	Build.trigger(room, Vector3(7.5, 1.0, 4.3), Vector3(4, 2, 1.4), "Order at the bar", "message").set_meta("message",
-		"\"Un caffè? One twenty.\" Eating and drinking come later.")
+	Build.trigger(room, Vector3(7.5, 1.0, 4.3), Vector3(4, 2, 1.4), "Eat at the bar (%d euro)" % Settings.MEAL_PRICE, "eat")
 
 	# Benches, luggage, a newsstand, a clock, people waiting.
 	for z in [-1.5, 1.0]:

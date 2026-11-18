@@ -130,6 +130,10 @@ func _home() -> void:
 		button.pressed.connect(_show.bind(app[1]))
 		grid.add_child(button)
 	_text("Street cred: %d" % Game.street_cred, 18)
+	if Game.home != "":
+		_text("Home: %s, with %s.\nRent: %d euro a week, next due on day %d." % [Game.home.capitalize(), Game.flatmate.name, Game.rent, Game.rent_due_day])
+	else:
+		_text("No home yet. Ask people for a room to rent, or read the notice board at the university.")
 
 
 # --- Chats ---

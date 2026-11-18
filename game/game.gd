@@ -6,8 +6,18 @@ signal models_ready
 signal night_ended          # the clock reached 5:00
 signal notice(text: String)  # something the player should see on screen
 signal shelter_changed
+signal home_lost(sign: String)  # you no longer live in the flat with this sign
 
 const FLATS := ["VIA VERDI 3", "VIA DANTE 7", "VIA MILANO 21"]
+## What a two-faced flatmate tells people about you.
+const SECRETS := [
+	"you cry on the phone to your mom every night",
+	"you wash your socks in the kitchen sink",
+	"you asked how a washing machine works",
+	"you count your coins before buying pasta",
+	"you practise Italian in the mirror and it's terrible",
+	"you eat their leftovers when you think nobody's looking",
+]
 const SAVE_PATH := "user://midalia_save.json"
 
 var wellbeing: int
@@ -31,6 +41,21 @@ var shelter_host: Person
 var night_survived: bool
 ## True once the "you survived" screen has been shown.
 var survived_shown: bool
+
+## The flat you rent a room in (its sign), or "" while you have no home.
+var home: String
+## Whoever you rent the room from, or null.
+var flatmate: Person
+## Weekly rent, and the day the next week is due.
+var rent: int
+var rent_due_day: int
+var nights_home: int
+var rent_raised: bool
+## When a flatmate will throw you out (Game.total_minutes), or -1.
+var kick_at: int
+## Strangers with a room advertised on the university notice board.
+var landlords: Array[Person]
+var ate_today: bool
 
 var phone_open := false
 ## True while a full-screen moment (talking, a wheel, game over) has the player's attention.
@@ -79,6 +104,14 @@ func reset() -> void:
 	shelter_host = null
 	night_survived = false
 	survived_shown = false
+	home = ""
+	flatmate = null
+	rent = 0
+	rent_due_day = 0
+	nights_home = 0
+	rent_raised = false
+	kick_at = -1
+	ate_today = false
 	phone_open = false
 	modal_open = false
 	clock_running = true
@@ -99,6 +132,15 @@ func _invite_partygoers() -> void:
 		p.vibe = vibes.pop_at(rng.randi() % vibes.size())
 		p.home = FLATS[i % FLATS.size()]
 		partygoers.append(p)
+	# Strangers with a room to let, one per flat. Their adverts hang on the university notice board.
+	landlords = []
+	var rents: Array = Settings.ROOM_RENTS_BOARD.duplicate()
+	for flat in FLATS:
+		var p := Person.random(rng)
+		p.name = names.pop_at(rng.randi() % names.size())
+		p.home = flat
+		p.room_rent = rents.pop_at(rng.randi() % rents.size())
+		landlords.append(p)
 	# Shuffle so the true friend isn't always the first person in the room.
 	for i in range(partygoers.size() - 1, 0, -1):
 		var j := rng.randi_range(0, i)
@@ -128,6 +170,7 @@ func _process(delta: float) -> void:
 		_last_minute = int(minutes)
 		minute_passed.emit()
 		_check_cancelled_couch()
+		_check_kicked_out()
 	if before < Settings.PASS_OUT_HOUR * 60.0 and minutes >= Settings.PASS_OUT_HOUR * 60.0:
 		night_ended.emit()
 
@@ -176,7 +219,11 @@ func save_game(inside: String, position: Vector3) -> void:
 	var people: Array[Person] = []
 	people.append_array(contacts.filter(func(p): return p.kind == "family"))
 	people.append_array(partygoers)
+	people.append_array(landlords)
 	var data := {
+		"home": home, "flatmate": people.find(flatmate), "rent": rent, "rent_due_day": rent_due_day,
+		"nights_home": nights_home, "rent_raised": rent_raised, "kick_at": kick_at, "ate_today": ate_today,
+		"landlords": landlords.map(func(p): return people.find(p)),
 		"wellbeing": wellbeing, "cash": cash, "street_cred": street_cred, "day": day, "minutes": minutes,
 		"bank_account": bank_account, "bank_balance": bank_balance, "tuition_owed": tuition_owed,
 		"notebook": notebook, "mean_to": mean_to, "night_survived": night_survived, "survived_shown": survived_shown,
@@ -213,6 +260,17 @@ func load_game() -> bool:
 	var people: Array = data.people.map(func(d): return Person.from_data(d))
 	contacts.assign(data.contacts.map(func(i): return people[int(i)]))
 	partygoers.assign(data.partygoers.map(func(i): return people[int(i)]))
+	# Saves from before the second quest have none of these; they keep the fresh values from reset().
+	if data.has("landlords"):
+		landlords.assign(data.landlords.map(func(i): return people[int(i)]))
+		home = data.home
+		flatmate = people[int(data.flatmate)] if int(data.flatmate) >= 0 else null
+		rent = int(data.rent)
+		rent_due_day = int(data.rent_due_day)
+		nights_home = int(data.nights_home)
+		rent_raised = data.rent_raised
+		kick_at = int(data.kick_at)
+		ate_today = data.ate_today
 	saved_inside = data.inside
 	saved_position = Vector3(data.position[0], data.position[1], data.position[2])
 	loaded_from_save = true
@@ -251,6 +309,10 @@ func send(person: Person, text: String, in_person: bool) -> String:
 			notice.emit("%s gave you their number." % person.name)
 		if request == "shelter" and result.granted:
 			_offer_couch(person, result)
+		if request == "room" and result.granted:
+			result.opener += " i'm at %s, come by and pay the first week." % person.home.capitalize()
+			add_note("%s will rent me a room at %s for %d euro a week. I move in by going there and paying the first week." % [person.name, person.home.capitalize(), person.room_rent])
+			shelter_changed.emit()
 	if result.strangers_mad:
 		notice.emit("Word got around that you're rude. People are talking.")
 	var reply: String = await llm.reply(person, person.history, result)
@@ -307,6 +369,173 @@ func sleep_on_couch() -> String:
 	host.betrayal = ""
 	shelter_changed.emit()
 	return text
+
+
+# --- Food ---
+
+## Takes money from your pocket first, then from the bank account. Returns false if you can't cover it.
+func pay(amount: int) -> bool:
+	if cash + (bank_balance if bank_account else 0) < amount:
+		return false
+	var from_cash := mini(cash, amount)
+	cash -= from_cash
+	bank_balance -= amount - from_cash
+	return true
+
+
+## One proper meal a day is what counts. Returns what to tell the player.
+func eat(price: int, gain: int, what: String) -> String:
+	if ate_today:
+		return "You've already eaten today. Save your money."
+	if not pay(price):
+		return "You can't afford it. It costs %d euro." % price
+	ate_today = true
+	wellbeing = clampi(wellbeing + gain, 0, 100)
+	return "%s -%d euro. Wellbeing +%d." % [what, price, gain]
+
+
+# --- A room of your own ---
+
+## Everyone you know of who would rent you a room in this flat.
+func rooms_at(sign: String) -> Array[Person]:
+	var found: Array[Person] = []
+	for p in contacts:
+		if p.room_rent > 0 and p.home == sign:
+			found.append(p)
+	return found
+
+
+## Reading the adverts on the university notice board puts the landlords in your phone.
+func read_board() -> String:
+	var text := "Rooms to rent:"
+	for p in landlords:
+		if p.room_rent <= 0:
+			continue
+		text += "\n%s, %d euro a week. Ask for %s." % [p.home.capitalize(), p.room_rent, p.name]
+		add_note("Room to rent at %s: %d euro a week. Ask for %s." % [p.home.capitalize(), p.room_rent, p.name])
+		if not contacts.has(p):
+			contacts.append(p)
+	shelter_changed.emit()
+	return text + "\nTheir numbers are in your phone. Ring the bell at a flat to move in."
+
+
+## Pays the first week and makes the flat your home. Returns false if you can't pay.
+func move_in(person: Person) -> bool:
+	if not pay(person.room_rent):
+		return false
+	home = person.home
+	flatmate = person
+	rent = person.room_rent
+	rent_due_day = day + Settings.RENT_DAYS
+	nights_home = 0
+	rent_raised = false
+	kick_at = -1
+	shelter_host = null
+	person.remember("They moved into your spare room and pay you %d euro a week." % rent)
+	add_note("I live at %s now, with %s. Rent is %d euro a week, next due on day %d." % [home.capitalize(), person.name, rent, rent_due_day])
+	shelter_changed.emit()
+	return true
+
+
+## A night in your own bed. The clock is moved separately, by the sleeping animation.
+func sleep_in_bed() -> String:
+	night_survived = true
+	wellbeing = clampi(wellbeing + Settings.BED_WELLBEING, 0, 100)
+	return "You slept in your own bed. Wellbeing +%d." % Settings.BED_WELLBEING
+
+
+## Everything that catches up with you in the morning: hunger, the rent, and
+## what your flatmate got up to. Returns what to tell the player.
+func wake_up(slept_at_home: bool) -> String:
+	var text := ""
+	if not ate_today:
+		wellbeing = clampi(wellbeing + Settings.HUNGRY_WELLBEING, 0, 100)
+		text += " You went a whole day without eating. Wellbeing %d." % Settings.HUNGRY_WELLBEING
+	ate_today = false
+	if home == "":
+		return text
+	if slept_at_home:
+		nights_home += 1
+		text += _flatmate_night()
+	if day >= rent_due_day:
+		if pay(rent):
+			rent_due_day += Settings.RENT_DAYS
+			text += " Rent day: %d euro to %s." % [rent, flatmate.name]
+		else:
+			wellbeing = clampi(wellbeing + Settings.EVICTED_WELLBEING, 0, 100)
+			text += " Rent day, and you can't pay %d euro. %s throws you out. Wellbeing %d." % [rent, flatmate.name, Settings.EVICTED_WELLBEING]
+			flatmate.remember("They couldn't pay the rent, so you threw them out.")
+			add_note("I couldn't pay the rent. %s threw me out." % flatmate.name)
+			_lose_home()
+	return text
+
+
+## What a two-faced flatmate does while you sleep. At most one thing a night.
+func _flatmate_night() -> String:
+	if flatmate.nature != "two_faced":
+		return ""
+	var settled := nights_home > Settings.FLATMATE_SAFE_NIGHTS
+	var roll := rng.randf()
+	roll -= Settings.FLATMATE_STEAL_CHANCE
+	if roll < 0.0:
+		if cash <= 0:
+			return ""
+		var stolen := maxi(1, int(cash * rng.randf_range(Settings.STEAL_SHARE_MIN, Settings.STEAL_SHARE_MAX)))
+		cash -= stolen
+		flatmate.remember("You took some of their money while they slept. They don't know it was you.")
+		add_note("%d euro went missing from my room at %s." % [stolen, home.capitalize()])
+		return " %d euro is missing from your room." % stolen
+	roll -= Settings.FLATMATE_GOSSIP_CHANCE
+	if roll < 0.0:
+		var secret: String = SECRETS[rng.randi() % SECRETS.size()]
+		wellbeing = clampi(wellbeing + Settings.GOSSIP_WELLBEING, 0, 100)
+		flatmate.remember("You told people embarrassing things about them behind their back.")
+		add_note("%s has been telling people that %s." % [flatmate.name, secret.replace("you ", "I ").replace("your ", "my ")])
+		# Someone you know passes it on, if you know anyone.
+		var others := contacts.filter(func(p): return p.kind == "met" and p != flatmate)
+		if others.is_empty():
+			return " You overhear people laughing: %s says %s. Wellbeing %d." % [flatmate.name, secret, Settings.GOSSIP_WELLBEING]
+		var teller: Person = others[rng.randi() % others.size()]
+		teller.history.append({"from": "person", "text": "hey, thought you should know. %s is telling everyone %s." % [flatmate.name, secret]})
+		return " %s texted: %s is telling everyone %s. Wellbeing %d." % [teller.name, flatmate.name, secret, Settings.GOSSIP_WELLBEING]
+	roll -= Settings.FLATMATE_RENT_UP_CHANCE
+	if roll < 0.0:
+		if not settled or rent_raised:
+			return ""
+		rent_raised = true
+		rent = int(rent * (1.0 + Settings.RENT_UP_SHARE) / 5.0) * 5
+		flatmate.room_rent = rent
+		flatmate.history.append({"from": "person", "text": "hey so the landlord put the rent up. it's %d a week now. nothing i can do." % rent})
+		flatmate.remember("You put their rent up to %d euro a week and blamed the landlord." % rent)
+		add_note("%s put the rent up to %d euro a week." % [flatmate.name, rent])
+		return " %s texted: the rent is now %d euro a week." % [flatmate.name, rent]
+	roll -= Settings.FLATMATE_KICK_OUT_CHANCE
+	if roll < 0.0 and settled:
+		# They'll tell you this evening, when it's too late to find anything else.
+		kick_at = day * 1440 + Settings.KICK_OUT_HOUR * 60
+	return ""
+
+
+func _check_kicked_out() -> void:
+	if kick_at < 0 or total_minutes() < kick_at:
+		return
+	kick_at = -1
+	flatmate.history.append({"from": "person", "text": "listen, my cousin needs the room. you have to be out tonight. sorry."})
+	flatmate.remember("You threw them out of the room with a few hours' notice.")
+	add_note("%s threw me out. I need somewhere to sleep tonight." % flatmate.name)
+	notice.emit("New message from %s: you have to be out of the room tonight." % flatmate.name)
+	_lose_home()
+
+
+func _lose_home() -> void:
+	var old := home
+	home = ""
+	flatmate.room_rent = 0
+	flatmate = null
+	rent = 0
+	kick_at = -1
+	shelter_changed.emit()
+	home_lost.emit(old)
 
 
 func minutes_until(hour_of_day: int) -> int:

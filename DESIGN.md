@@ -93,6 +93,27 @@ First build: WhatsApp (texting), banking app (locked until the account exists), 
 1. **First quest:** land in Italy, get an Italian number, find shelter for the night, open a bank account.
 2. **Second quest:** find permanent shelter until school starts.
 
+### The second quest: a room of your own
+
+Agreed 18 November 2026.
+
+- **Two ways to find a room:**
+  - Ask someone you met, by text or face to face. It is a bigger ask than a couch; friends are more likely to say yes. Their spare room is cheap (90 euro a week).
+  - Read the notice board in the university hall. It always has three rooms, one in each student flat, let by strangers at 140, 165 and 190 euro a week. Reading it puts the landlords in the phone.
+- **Moving in:** ring the bell at the flat and pay the first week on the spot. Rent is then due every 7 days and is taken on waking, from the pocket first and then the bank. Unable to pay means being thrown out.
+- **Home gives:** a bed (usable from 21:00, restores more than a couch) and a kitchen for cheap meals. At 5:00 at home the player drops into bed instead of passing out.
+- **A two-faced flatmate** may do one of these on any night the player sleeps at home:
+  - steal a share of the cash in the player's pocket
+  - spread a secret about the player; the player finds out in the morning and loses wellbeing
+  - raise the rent (once)
+  - text in the evening that the player must be out that night
+- The flatmate has the same hidden nature as everyone else; ok people and true friends never do any of this.
+
+### Food
+
+- One meal a day counts. Eat at the station bar (12 euro), or cook at home once the player has a room (4 euro).
+- Waking up after a day without a meal costs wellbeing.
+
 ## First build
 
 Night one and day two only, about 30 real minutes of play.

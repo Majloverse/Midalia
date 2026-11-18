@@ -36,6 +36,7 @@ var look: Dictionary = {}  # what they look like; see Body
 var home: String = ""        # the flat they live in, as written on its sign
 var betrayal: String = ""    # what a two-faced host has planned: "", "cancel" or "steal"
 var cancel_at: int = -1      # when they'll cancel a couch offer (Game.total_minutes), or -1
+var room_rent: int = 0       # weekly rent of the room they'd let you have; 0 if they haven't offered one
 
 # Family only.
 var asks: int = 0            # money asks since they last got mad (mom, dad)
@@ -80,7 +81,7 @@ func to_data() -> Dictionary:
 	return {
 		"name": name, "vibe": vibe, "kind": kind, "role": role, "nature": nature, "opinion": opinion,
 		"is_friend": is_friend, "memory": memory, "history": history, "look": Body.look_to_data(look),
-		"home": home, "asks": asks, "last_gift_day": last_gift_day, "mood_day": mood_day, "nasty": nasty,
+		"home": home, "room_rent": room_rent, "asks": asks, "last_gift_day": last_gift_day, "mood_day": mood_day, "nasty": nasty,
 	}
 
 
@@ -97,6 +98,7 @@ static func from_data(data: Dictionary) -> Person:
 	p.history = data.history
 	p.look = Body.look_from_data(data.look)
 	p.home = data.home
+	p.room_rent = int(data.get("room_rent", 0))
 	p.asks = int(data.asks)
 	p.last_gift_day = int(data.last_gift_day)
 	p.mood_day = int(data.mood_day)
