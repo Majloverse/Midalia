@@ -8,6 +8,7 @@ signal notice(text: String)  # something the player should see on screen
 signal shelter_changed
 
 const FLATS := ["VIA VERDI 3", "VIA DANTE 7", "VIA MILANO 21"]
+const SAVE_PATH := "user://midalia_save.json"
 
 var wellbeing: int
 var cash: int
@@ -38,6 +39,11 @@ var rng := RandomNumberGenerator.new()
 var llm := LLM.new()
 var llm_ready := false
 
+## Set when this run began from a save: where the player was when it was made.
+var loaded_from_save := false
+var saved_inside := ""
+var saved_position := Vector3.ZERO
+
 var _last_minute := -1
 
 
@@ -51,12 +57,14 @@ func _ready() -> void:
 	_add_key("interact", KEY_E)
 	_add_key("phone", KEY_TAB)
 	_add_key("run", KEY_SHIFT)
-	reset()
+	if not load_game():
+		reset()
 	_load_models()
 
 
 ## Starts a new game.
 func reset() -> void:
+	loaded_from_save = false
 	wellbeing = Settings.START_WELLBEING
 	cash = Settings.START_CASH
 	street_cred = Settings.START_STREET_CRED
@@ -161,6 +169,59 @@ func skip_to_morning() -> void:
 		day += 1
 	minutes = Settings.WAKE_HOUR * 60.0
 	_last_minute = -1
+
+
+## The one save slot. Written each time the player wakes up; there is no manual saving.
+func save_game(inside: String, position: Vector3) -> void:
+	var people: Array[Person] = []
+	people.append_array(contacts.filter(func(p): return p.kind == "family"))
+	people.append_array(partygoers)
+	var data := {
+		"wellbeing": wellbeing, "cash": cash, "street_cred": street_cred, "day": day, "minutes": minutes,
+		"bank_account": bank_account, "bank_balance": bank_balance, "tuition_owed": tuition_owed,
+		"notebook": notebook, "mean_to": mean_to, "night_survived": night_survived, "survived_shown": survived_shown,
+		"people": people.map(func(p): return p.to_data()),
+		"contacts": contacts.map(func(p): return people.find(p)),
+		"partygoers": partygoers.map(func(p): return people.find(p)),
+		"inside": inside, "position": [position.x, position.y, position.z],
+	}
+	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+	if file != null:
+		file.store_string(JSON.stringify(data))
+
+
+## Loads the save if there is one. Returns false if there isn't or it can't be read.
+func load_game() -> bool:
+	if not FileAccess.file_exists(SAVE_PATH):
+		return false
+	var data = JSON.parse_string(FileAccess.get_file_as_string(SAVE_PATH))
+	if not data is Dictionary or not data.has("people"):
+		return false
+	reset()
+	wellbeing = int(data.wellbeing)
+	cash = int(data.cash)
+	street_cred = int(data.street_cred)
+	day = int(data.day)
+	minutes = data.minutes
+	bank_account = data.bank_account
+	bank_balance = int(data.bank_balance)
+	tuition_owed = int(data.tuition_owed)
+	notebook.assign(data.notebook)
+	mean_to = data.mean_to
+	night_survived = data.night_survived
+	survived_shown = data.survived_shown
+	var people: Array = data.people.map(func(d): return Person.from_data(d))
+	contacts.assign(data.contacts.map(func(i): return people[int(i)]))
+	partygoers.assign(data.partygoers.map(func(i): return people[int(i)]))
+	saved_inside = data.inside
+	saved_position = Vector3(data.position[0], data.position[1], data.position[2])
+	loaded_from_save = true
+	return true
+
+
+func delete_save() -> void:
+	if FileAccess.file_exists(SAVE_PATH):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(SAVE_PATH))
 
 
 func add_note(text: String) -> void:

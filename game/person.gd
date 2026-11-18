@@ -30,6 +30,7 @@ var opinion: int = 0  # what they privately think of you, -100..100
 var is_friend: bool = false
 var memory: Array[String] = []  # short facts about past conversations
 var history: Array = []  # the conversation so far: [{"from": "player" or "person", "text": ...}]
+var look: Dictionary = {}  # what they look like; see Body
 
 # People you meet only.
 var home: String = ""        # the flat they live in, as written on its sign
@@ -48,6 +49,7 @@ static func random(rng: RandomNumberGenerator, forced_nature: String = "") -> Pe
 	p.name = FIRST_NAMES[rng.randi() % FIRST_NAMES.size()]
 	p.vibe = VIBES[rng.randi() % VIBES.size()]
 	p.nature = forced_nature if forced_nature != "" else _roll_nature(rng)
+	p.look = Body.random_look(rng)
 	return p
 
 
@@ -71,6 +73,35 @@ static func _roll_nature(rng: RandomNumberGenerator) -> String:
 		if roll <= total:
 			return nature
 	return "two_faced"
+
+
+## Everything about this person as plain data, for the save file.
+func to_data() -> Dictionary:
+	return {
+		"name": name, "vibe": vibe, "kind": kind, "role": role, "nature": nature, "opinion": opinion,
+		"is_friend": is_friend, "memory": memory, "history": history, "look": Body.look_to_data(look),
+		"home": home, "asks": asks, "last_gift_day": last_gift_day, "mood_day": mood_day, "nasty": nasty,
+	}
+
+
+static func from_data(data: Dictionary) -> Person:
+	var p := Person.new()
+	p.name = data.name
+	p.vibe = data.vibe
+	p.kind = data.kind
+	p.role = data.role
+	p.nature = data.nature
+	p.opinion = int(data.opinion)
+	p.is_friend = data.is_friend
+	p.memory.assign(data.memory)
+	p.history = data.history
+	p.look = Body.look_from_data(data.look)
+	p.home = data.home
+	p.asks = int(data.asks)
+	p.last_gift_day = int(data.last_gift_day)
+	p.mood_day = int(data.mood_day)
+	p.nasty = data.nasty
+	return p
 
 
 func remember(fact: String) -> void:

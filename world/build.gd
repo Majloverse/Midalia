@@ -75,19 +75,20 @@ static func sign(parent: Node3D, at: Vector3, text: String, size: int, yaw: floa
 	return label
 
 
-## A standing block person with a solid body. Faces `yaw`.
-static func person(parent: Node3D, at: Vector3, yaw: float, clothes: Color, skin: Color) -> StaticBody3D:
+## A standing person with a solid body. Faces `yaw`. The figure is kept in meta "figure".
+static func person(parent: Node3D, at: Vector3, yaw: float, look: Dictionary) -> StaticBody3D:
 	var npc := StaticBody3D.new()
 	npc.position = at
 	var shape := CollisionShape3D.new()
 	var capsule := CapsuleShape3D.new()
-	capsule.radius = 0.35
+	capsule.radius = 0.28
 	capsule.height = 1.8
 	shape.shape = capsule
 	shape.position.y = 0.9
 	npc.add_child(shape)
-	var body := Body.build(clothes, skin)
+	var body := Body.build(look)
 	body.rotation.y = yaw
 	npc.add_child(body)
+	npc.set_meta("figure", body)
 	parent.add_child(npc)
 	return npc

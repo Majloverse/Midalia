@@ -96,13 +96,15 @@ static func flat(parent: Node3D, origin: Vector3, wall: Color, accent: Color) ->
 
 	var couch := Build.trigger(room, Vector3(-3.6, 1.0, -1), Vector3(1.6, 2.0, 2.6), "Sleep on the couch", "sleep")
 	# Where the sleeper's feet go and which way their head points.
-	couch.set_meta("lie_at", origin + Vector3(-4.2, 0.7, -0.05))
-	couch.set_meta("lie_yaw", 0.0)
+	couch.set_meta("lie_at", origin + Vector3(-4.2, 0.6, -0.1))
+	couch.set_meta("lie_yaw", PI)
 	return {"room": room, "entry": origin + Vector3(0, 0.1, 1.4), "host_spot": Vector3(0.8, 0, -0.6)}
 
 
 ## The bank: a real counter behind glass, a queue, and far too much waiting.
 static func bank(parent: Node3D, origin: Vector3) -> Dictionary:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 5
 	var room := shell(parent, origin, 14, 4, 10, Color(0.86, 0.86, 0.82), Color(0.6, 0.6, 0.62), "Leave the bank")
 	Build.light(room, Vector3(-3.5, 3.6, 0.5), Color(0.92, 0.96, 1.0), 2.4, 12.0)
 	Build.light(room, Vector3(3.5, 3.6, 0.5), Color(0.92, 0.96, 1.0), 2.4, 12.0)
@@ -131,7 +133,7 @@ static func bank(parent: Node3D, origin: Vector3) -> Dictionary:
 	Build.box(room, Vector3(-0.9, 1.17, -2.05), Vector3(0.35, 0.03, 0.45), Color(0.95, 0.95, 0.85))
 
 	# Behind the counter: the teller, a monitor, filing cabinets, the vault door.
-	var teller := Build.person(room, Vector3(0, 0, -3.1), PI, Color(0.15, 0.2, 0.35), Color(0.9, 0.75, 0.62))
+	var teller := Build.person(room, Vector3(0, 0, -3.1), PI, Body.random_look(rng))
 	Build.box(room, Vector3(0.9, 1.4, -2.6), Vector3(0.5, 0.4, 0.05), Color(0.1, 0.1, 0.12))           # monitor
 	for x in [-5.6, -4.8, 4.8, 5.6]:
 		Build.box(room, Vector3(x, 0.7, -4.6), Vector3(0.7, 1.4, 0.6), METAL, true)                     # filing cabinets
@@ -158,8 +160,8 @@ static func bank(parent: Node3D, origin: Vector3) -> Dictionary:
 		Build.box(room, Vector3(-6.4, 0.45, z), Vector3(0.6, 0.08, 0.6), Color(0.2, 0.3, 0.45), true)
 		Build.box(room, Vector3(-6.75, 0.8, z), Vector3(0.08, 0.7, 0.6), Color(0.2, 0.3, 0.45))
 		Build.box(room, Vector3(-6.4, 0.2, z), Vector3(0.08, 0.4, 0.5), METAL)
-	Build.person(room, Vector3(-5.6, 0, 3.4), -PI / 2, Color(0.5, 0.45, 0.4), Color(0.85, 0.7, 0.6))
-	Build.person(room, Vector3(5.2, 0, 2.2), PI * 0.8, Color(0.4, 0.2, 0.3), Color(0.6, 0.45, 0.35))
+	Build.person(room, Vector3(-5.6, 0, 3.4), -PI / 2, Body.random_look(rng))
+	Build.person(room, Vector3(5.2, 0, 2.2), PI * 0.8, Body.random_look(rng))
 	Build.box(room, Vector3(5.6, 0.4, 3.8), Vector3(1.6, 0.8, 0.8), WOOD, true)                        # writing desk
 	Build.box(room, Vector3(5.4, 0.83, 3.8), Vector3(0.3, 0.02, 0.4), Color.WHITE)
 	Build.box(room, Vector3(5.9, 0.9, 3.75), Vector3(0.05, 0.16, 0.05), Color(0.1, 0.1, 0.4))          # the pen on a chain
@@ -199,3 +201,174 @@ static func party(parent: Node3D, origin: Vector3) -> Dictionary:
 	Build.box(room, Vector3(-7.4, 0.5, 4), Vector3(0.9, 1.0, 2.2), Color(0.25, 0.25, 0.3), true)       # coats piled on a chest
 	Build.box(room, Vector3(-7.4, 1.1, 4), Vector3(0.8, 0.25, 1.8), Color(0.4, 0.3, 0.2))
 	return {"room": room, "entry": origin + Vector3(0, 0.1, 2.6)}
+
+
+## The station concourse: where you arrive. Departure board, shut ticket office, a bar.
+static func station(parent: Node3D, origin: Vector3) -> Dictionary:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 11
+	var room := shell(parent, origin, 22, 6.5, 14, Color(0.82, 0.78, 0.7), Color(0.72, 0.7, 0.66), "Leave the station")
+	for x in [-6.0, 0.0, 6.0]:
+		Build.light(room, Vector3(x, 5.6, 0), Color(1.0, 0.95, 0.85), 2.6, 14.0)
+		Build.glow(Build.box(room, Vector3(x, 6.4, 0), Vector3(1.2, 0.1, 1.2), Color.WHITE), Color(1.0, 0.95, 0.85), 2.0)
+	for x in [-7.0, 7.0]:
+		for z in [-3.0, 3.0]:
+			Build.box(room, Vector3(x, 3.25, z), Vector3(0.7, 6.5, 0.7), Color(0.75, 0.7, 0.62), true)   # pillars
+			Build.box(room, Vector3(x, 0.3, z), Vector3(0.95, 0.6, 0.95), Color(0.55, 0.5, 0.45))
+
+	# The departure board on the back wall. Nothing leaves on time.
+	Build.box(room, Vector3(0, 4.3, -6.85), Vector3(9, 2.6, 0.2), Color(0.04, 0.04, 0.05))
+	Build.sign(room, Vector3(0, 5.3, -6.72), "PARTENZE  /  DEPARTURES", 56, 0.0, Color(1.0, 0.8, 0.2))
+	var trains := ["18:15   ROMA TERMINI          RITARDO 95'", "18:40   VENEZIA S. LUCIA      CANCELLATO",
+		"19:05   TORINO PORTA NUOVA    RITARDO 40'", "19:30   NAPOLI CENTRALE       RITARDO 120'", "20:00   CASA TUA              NON DISPONIBILE"]
+	for i in trains.size():
+		Build.sign(room, Vector3(0, 4.85 - i * 0.38, -6.72), trains[i], 40, 0.0, Color(1.0, 0.6, 0.15) if i < 4 else Color(1.0, 0.25, 0.2))
+	Build.trigger(room, Vector3(0, 1.2, -5.4), Vector3(8, 2.4, 2.0), "Read the departure board", "message").set_meta("message",
+		"Every train is late or cancelled. The one going home says \"not available\".")
+	# Platform gates either side of the board.
+	for x in [-8.3, 8.3]:
+		Build.box(room, Vector3(x, 1.6, -6.9), Vector3(3.2, 3.2, 0.15), Color(0.1, 0.11, 0.14))
+		Build.sign(room, Vector3(x, 3.5, -6.8), "BINARI 1-6" if x < 0 else "BINARI 7-12", 52)
+		Build.box(room, Vector3(x, 0.55, -6.3), Vector3(3.0, 1.1, 0.12), METAL, true)             # barrier
+
+	# Ticket office (shut) on the left, ticket machines on the right.
+	Build.box(room, Vector3(-10.4, 0.55, 2.5), Vector3(0.9, 1.1, 5), Color(0.5, 0.2, 0.18), true)
+	Build.box(room, Vector3(-10.4, 1.9, 2.5), Vector3(0.06, 1.6, 5), Color(0.7, 0.85, 0.95, 0.25))
+	Build.box(room, Vector3(-9.93, 2.0, 2.5), Vector3(0.04, 0.5, 2.2), Color(0.7, 0.15, 0.15))
+	Build.sign(room, Vector3(-9.9, 2.0, 2.5), "BIGLIETTERIA CHIUSA", 44, PI / 2)
+	for z in [0.0, 1.2, 2.4]:
+		Build.box(room, Vector3(10.5, 0.9, z), Vector3(0.6, 1.8, 0.8), Color(0.75, 0.15, 0.15), true)
+		Build.glow(Build.box(room, Vector3(10.18, 1.25, z), Vector3(0.03, 0.4, 0.5), Color(0.2, 0.3, 0.5)), Color(0.4, 0.7, 1.0), 1.0)
+	Build.sign(room, Vector3(10.15, 2.1, 1.2), "FUORI SERVIZIO", 36, -PI / 2, Color(1.0, 0.8, 0.2))
+
+	# The bar: counter, coffee machine, stools, pastries under glass.
+	Build.box(room, Vector3(7.5, 0.55, 5.4), Vector3(4.5, 1.1, 0.8), DARK_WOOD, true)
+	Build.box(room, Vector3(7.5, 1.12, 5.4), Vector3(4.6, 0.05, 0.9), Color(0.85, 0.82, 0.76))
+	Build.box(room, Vector3(8.9, 1.4, 5.5), Vector3(0.7, 0.5, 0.5), METAL)                       # coffee machine
+	Build.box(room, Vector3(6.6, 1.3, 5.4), Vector3(1.2, 0.3, 0.5), Color(0.8, 0.9, 0.95, 0.3))          # pastry case
+	for i in 4:
+		Build.box(room, Vector3(6.25 + i * 0.24, 1.2, 5.4), Vector3(0.16, 0.08, 0.2), Color(0.8, 0.6, 0.3))
+	Build.box(room, Vector3(7.5, 2.6, 6.85), Vector3(4.5, 1.6, 0.2), DARK_WOOD)                          # shelves of bottles
+	for i in 12:
+		Build.box(room, Vector3(5.6 + i * 0.34, 2.5 + (i % 2) * 0.5, 6.7), Vector3(0.09, 0.3, 0.09), [Color(0.2, 0.5, 0.25), Color(0.5, 0.3, 0.1), Color(0.7, 0.15, 0.15)][i % 3])
+	Build.sign(room, Vector3(7.5, 3.8, 6.7), "BAR", 120, PI, Color(1.0, 0.85, 0.5))
+	for x in [6.2, 7.5, 8.8]:
+		Build.box(room, Vector3(x, 0.38, 4.5), Vector3(0.35, 0.06, 0.35), Color(0.6, 0.1, 0.12))
+		Build.box(room, Vector3(x, 0.18, 4.5), Vector3(0.07, 0.36, 0.07), METAL)
+	Build.person(room, Vector3(7.5, 0, 6.2), 0.0, Body.random_look(rng))                                 # barista
+	Build.trigger(room, Vector3(7.5, 1.0, 4.3), Vector3(4, 2, 1.4), "Order at the bar", "message").set_meta("message",
+		"\"Un caffè? One twenty.\" Eating and drinking come later.")
+
+	# Benches, luggage, a newsstand, a clock, people waiting.
+	for z in [-1.5, 1.0]:
+		for x in [-3.2, 3.2]:
+			Build.box(room, Vector3(x, 0.42, z), Vector3(3.6, 0.08, 0.5), WOOD, true)
+			Build.box(room, Vector3(x, 0.75, z + 0.24), Vector3(3.6, 0.5, 0.06), WOOD)
+			for leg in [-1.6, 1.6]:
+				Build.box(room, Vector3(x + leg, 0.2, z), Vector3(0.08, 0.4, 0.45), METAL)
+	for bag in [[Vector3(-4.5, 0.35, 0.3), Color(0.2, 0.3, 0.6)], [Vector3(-1.9, 0.3, -2.2), Color(0.6, 0.2, 0.2)], [Vector3(2.4, 0.35, 0.3), Color(0.15, 0.15, 0.15)], [Vector3(4.6, 0.25, -2.2), Color(0.3, 0.5, 0.3)]]:
+		Build.box(room, bag[0], Vector3(0.45, bag[0].y * 2, 0.28), bag[1], true)
+		Build.box(room, bag[0] + Vector3(0, bag[0].y + 0.15, 0), Vector3(0.25, 0.3, 0.03), METAL)
+	Build.box(room, Vector3(-7.5, 1.1, 5.9), Vector3(3.2, 2.2, 1.4), Color(0.2, 0.4, 0.3), true)         # newsstand
+	for i in 8:
+		Build.box(room, Vector3(-8.8 + i * 0.38, 1.0 + (i % 2) * 0.5, 5.15), Vector3(0.28, 0.38, 0.04), [Color.WHITE, Color(0.9, 0.3, 0.3), Color(0.3, 0.5, 0.9), Color(0.95, 0.85, 0.3)][i % 4])
+	Build.sign(room, Vector3(-7.5, 2.45, 5.18), "EDICOLA", 56, PI)
+	Build.box(room, Vector3(0, 5.6, 6.9), Vector3(1.3, 1.3, 0.12), Color.WHITE)                          # clock over the exit
+	Build.box(room, Vector3(0, 5.75, 6.82), Vector3(0.05, 0.5, 0.03), Color.BLACK)
+	Build.box(room, Vector3(0.18, 5.6, 6.82), Vector3(0.36, 0.05, 0.03), Color.BLACK)
+	Build.sign(room, Vector3(0, 3.2, 6.7), "USCITA  /  EXIT", 72, PI, Color(0.3, 0.9, 0.4))
+	Build.person(room, Vector3(-3.6, 0, -0.9), PI, Body.random_look(rng))
+	Build.person(room, Vector3(2.9, 0, 1.6), PI * 0.9, Body.random_look(rng))
+	Build.person(room, Vector3(-9.0, 0, -2.5), -PI / 2, Body.random_look(rng))
+	Build.person(room, Vector3(5.0, 0, -4.5), 0.2, Body.random_look(rng))
+	return {"room": room, "entry": origin + Vector3(0, 0.1, 4.0), "arrival": origin + Vector3(-8.3, 0.1, -5.2)}
+
+
+## The university hall: the secretary's desk, the notice board, a lecture corner, study tables.
+static func university(parent: Node3D, origin: Vector3) -> Dictionary:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 23
+	var room := shell(parent, origin, 24, 5, 14, Color(0.88, 0.84, 0.76), Color(0.5, 0.36, 0.26), "Leave the university")
+	for x in [-7.0, 0.0, 7.0]:
+		Build.light(room, Vector3(x, 4.4, 0.5), Color(1.0, 0.96, 0.88), 2.4, 13.0)
+		Build.glow(Build.box(room, Vector3(x, 4.95, 0.5), Vector3(2.0, 0.08, 0.5), Color.WHITE), Color.WHITE, 2.0)
+	Build.sign(room, Vector3(0, 4.2, 6.7), "UNIVERSITÀ", 110, PI, Color(0.5, 0.15, 0.15))
+
+	# Segreteria: the office that is never open.
+	Build.box(room, Vector3(-8.5, 0.55, 3.5), Vector3(5, 1.1, 0.8), DARK_WOOD, true)
+	Build.box(room, Vector3(-8.5, 1.12, 3.5), Vector3(5.1, 0.05, 0.9), Color(0.8, 0.76, 0.7))
+	Build.box(room, Vector3(-9.3, 1.4, 3.7), Vector3(0.5, 0.4, 0.05), Color(0.1, 0.1, 0.12))            # monitor
+	Build.box(room, Vector3(-7.4, 1.2, 3.5), Vector3(0.35, 0.12, 0.45), Color.WHITE)                    # a tower of forms
+	Build.box(room, Vector3(-7.4, 1.3, 3.5), Vector3(0.33, 0.1, 0.43), Color(0.95, 0.95, 0.85))
+	Build.sign(room, Vector3(-8.5, 3.0, 6.7), "SEGRETERIA STUDENTI", 60, PI)
+	Build.sign(room, Vector3(-8.5, 2.5, 6.7), "martedì 10:00 - 10:15", 36, PI, Color(0.8, 0.8, 0.8))
+	for x in [-10.6, -9.6, -6.4]:
+		Build.box(room, Vector3(x, 0.8, 6.3), Vector3(0.8, 1.6, 0.6), METAL, true)               # filing cabinets
+	Build.person(room, Vector3(-8.5, 0, 4.6), PI, Body.random_look(rng))
+	Build.trigger(room, Vector3(-8.5, 1.0, 2.5), Vector3(4, 2, 1.4), "Talk to the secretary", "message").set_meta("message",
+		"\"The office is open Tuesdays, 10:00 to 10:15. Use the app.\" She goes back to her crossword.")
+
+	# The notice board.
+	Build.box(room, Vector3(11.85, 1.9, 2.5), Vector3(0.1, 1.8, 3.4), Color(0.55, 0.4, 0.25))
+	for i in 9:
+		Build.box(room, Vector3(11.78, 1.4 + (i % 3) * 0.5, 1.3 + (i / 3) * 1.1 + (i % 2) * 0.15), Vector3(0.02, 0.38, 0.3),
+			[Color.WHITE, Color(1.0, 0.95, 0.6), Color(0.8, 0.9, 1.0), Color(1.0, 0.8, 0.8)][i % 4])
+	Build.sign(room, Vector3(11.75, 3.05, 2.5), "AVVISI", 60, -PI / 2)
+	Build.trigger(room, Vector3(10.6, 1.0, 2.5), Vector3(2.0, 2, 3.4), "Read the notice board", "notices")
+
+	# Lecture corner at the back: blackboard, lectern, rows of desks.
+	Build.box(room, Vector3(3.5, 2.4, -6.9), Vector3(7, 2.2, 0.1), Color(0.12, 0.25, 0.18))
+	Build.box(room, Vector3(3.5, 1.25, -6.85), Vector3(7.1, 0.08, 0.16), WOOD)                           # chalk tray
+	Build.sign(room, Vector3(2.2, 2.9, -6.82), "MICROECONOMIA I", 52, 0.0, Color(0.95, 0.95, 0.9))
+	Build.sign(room, Vector3(4.6, 2.2, -6.82), "domanda = offerta ?", 40, 0.0, Color(0.95, 0.95, 0.9))
+	Build.sign(room, Vector3(2.0, 1.75, -6.82), "esame: giorno 10", 36, 0.0, Color(1.0, 0.9, 0.5))
+	Build.box(room, Vector3(0.2, 0.6, -5.4), Vector3(0.7, 1.2, 0.5), DARK_WOOD, true)                    # lectern
+	for row in 3:
+		var z := -3.4 + row * 1.5
+		Build.box(room, Vector3(3.8, 0.72, z), Vector3(6.4, 0.06, 0.5), WOOD, true)                      # long desk
+		Build.box(room, Vector3(3.8, 0.36, z - 0.22), Vector3(6.4, 0.72, 0.05), DARK_WOOD)
+		Build.box(room, Vector3(3.8, 0.42, z + 0.6), Vector3(6.4, 0.06, 0.4), WOOD)                      # bench
+		for leg in [-3.0, 0.0, 3.0]:
+			Build.box(room, Vector3(3.8 + leg, 0.2, z + 0.6), Vector3(0.08, 0.4, 0.35), METAL)
+		for seat in 3:
+			Build.box(room, Vector3(1.6 + seat * 2.1 + row * 0.3, 0.77, z), Vector3(0.3, 0.03, 0.22), [Color.WHITE, Color(0.2, 0.2, 0.25), Color(0.9, 0.85, 0.5)][(seat + row) % 3])
+
+	# Study tables on the left, with someone who has been there since September.
+	for z in [-4.5, -1.5]:
+		Build.box(room, Vector3(-7.5, 0.72, z), Vector3(3.0, 0.06, 1.2), WOOD, true)
+		for leg in [Vector3(-8.85, 0.35, z - 0.5), Vector3(-6.15, 0.35, z - 0.5), Vector3(-8.85, 0.35, z + 0.5), Vector3(-6.15, 0.35, z + 0.5)]:
+			Build.box(room, leg, Vector3(0.07, 0.7, 0.07), DARK_WOOD)
+		for x in [-8.3, -6.7]:
+			Build.box(room, Vector3(x, 0.42, z + 0.95), Vector3(0.45, 0.06, 0.45), Color(0.2, 0.3, 0.45))
+			Build.box(room, Vector3(x, 0.75, z + 1.16), Vector3(0.45, 0.6, 0.05), Color(0.2, 0.3, 0.45))
+			Build.box(room, Vector3(x, 0.2, z + 0.95), Vector3(0.38, 0.4, 0.38), METAL)
+		Build.box(room, Vector3(-8.0, 0.78, z), Vector3(0.34, 0.03, 0.24), Color(0.3, 0.3, 0.32))        # laptop
+		Build.glow(Build.box(room, Vector3(-8.0, 0.9, z - 0.13), Vector3(0.34, 0.22, 0.02), Color(0.2, 0.25, 0.4)), Color(0.5, 0.7, 1.0), 0.6)
+		Build.box(room, Vector3(-6.9, 0.82, z + 0.1), Vector3(0.22, 0.14, 0.3), Color(0.7, 0.2, 0.2))    # stacked textbooks
+	Build.person(room, Vector3(-6.7, 0, -3.3), 0.0, Body.random_look(rng))
+	Build.trigger(room, Vector3(-7.5, 1.0, -0.3), Vector3(3.4, 2, 1.2), "Sit down and study", "message").set_meta("message",
+		"You open a book. Studying for exams comes later.")
+
+	# Bookshelves, lockers, a vending machine, a trophy case, plants.
+	for x in [-11.0, -9.6, -8.2]:
+		Build.box(room, Vector3(x, 1.1, -6.7), Vector3(1.3, 2.2, 0.4), DARK_WOOD, true)
+		for shelf in 4:
+			for i in 5:
+				Build.box(room, Vector3(x - 0.48 + i * 0.24, 0.35 + shelf * 0.5, -6.52), Vector3(0.14, 0.34, 0.1),
+					[Color(0.7, 0.2, 0.2), Color(0.2, 0.4, 0.7), Color(0.8, 0.7, 0.2), Color(0.2, 0.6, 0.4), Color(0.6, 0.3, 0.6)][(i + shelf) % 5])
+	for i in 6:
+		Build.box(room, Vector3(11.7, 1.0, -5.6 + i * 0.62), Vector3(0.5, 2.0, 0.58), [Color(0.2, 0.35, 0.55), Color(0.25, 0.4, 0.6)][i % 2], true)  # lockers
+	Build.box(room, Vector3(11.55, 1.0, -1.2), Vector3(0.8, 2.0, 1.0), Color(0.75, 0.15, 0.15), true)    # vending machine
+	Build.glow(Build.box(room, Vector3(11.13, 1.3, -1.2), Vector3(0.03, 1.0, 0.7), Color(0.9, 0.9, 0.8)), Color(1.0, 1.0, 0.9), 0.8)
+	Build.box(room, Vector3(6.5, 1.0, 6.6), Vector3(3.0, 2.0, 0.5), DARK_WOOD, true)                     # trophy case
+	Build.box(room, Vector3(6.5, 1.2, 6.33), Vector3(2.7, 1.4, 0.04), Color(0.8, 0.9, 0.95, 0.25))
+	for i in 4:
+		Build.box(room, Vector3(5.5 + i * 0.66, 1.1, 6.5), Vector3(0.16, 0.34, 0.16), Color(0.85, 0.7, 0.25))
+	for corner in [Vector3(-11.3, 0, 0.8), Vector3(2.6, 0, 6.3), Vector3(-3.0, 0, -6.3)]:
+		Build.box(room, corner + Vector3(0, 0.25, 0), Vector3(0.5, 0.5, 0.5), Color(0.6, 0.35, 0.25))
+		Build.box(room, corner + Vector3(0, 1.1, 0), Vector3(0.7, 1.2, 0.7), Color(0.2, 0.5, 0.25))
+	Build.person(room, Vector3(8.5, 0, 0.5), -PI * 0.6, Body.random_look(rng))
+	Build.person(room, Vector3(9.3, 0, 1.3), PI * 0.4, Body.random_look(rng))
+	Build.person(room, Vector3(1.0, 0, 3.0), PI, Body.random_look(rng))
+	return {"room": room, "entry": origin + Vector3(0, 0.1, 4.2)}
+

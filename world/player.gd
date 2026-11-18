@@ -9,7 +9,7 @@ signal interacted(area: Area3D)
 var _yaw := PI  # start facing away from the station, down the street
 var _pitch := -0.25
 var _pivot: Node3D
-var _body: Node3D
+var _body: Figure
 var _nearby: Array[Area3D] = []
 var _lying := false
 var _arm: SpringArm3D
@@ -18,16 +18,16 @@ var _arm: SpringArm3D
 func _ready() -> void:
 	var shape := CollisionShape3D.new()
 	var capsule := CapsuleShape3D.new()
-	capsule.radius = 0.35
+	capsule.radius = 0.28
 	capsule.height = 1.8
 	shape.shape = capsule
 	shape.position.y = 0.9
 	add_child(shape)
 
-	_body = Body.build(Color(0.2, 0.3, 0.6), Color(0.9, 0.72, 0.6))
+	_body = Body.build(Body.player_look())
+	_body.add_backpack(Color(0.55, 0.15, 0.15))
 	_body.rotation.y = _yaw
 	add_child(_body)
-	Body.add_part(_body, BoxMesh.new(), Vector3(0, 1.1, 0.3), Vector3(0.45, 0.55, 0.2), Color(0.5, 0.15, 0.15))  # backpack
 
 	_pivot = Node3D.new()
 	_pivot.position.y = 1.6
@@ -81,13 +81,15 @@ func facing() -> float:
 	return _body.rotation.y
 
 
-## Lies down with feet at `at` and head pointing along `yaw`.
-func lie_down(at: Vector3, yaw: float) -> void:
+## Lies down with feet at `at`. On their back, or face down if they just collapsed.
+func lie_down(at: Vector3, yaw: float, face_up: bool = true) -> void:
 	_lying = true
 	velocity = Vector3.ZERO
+	_body.walk = 0.0
+	_body.mood = "still"
 	var tween := create_tween().set_parallel()
 	tween.tween_property(_body, "global_position", at, 0.9).set_trans(Tween.TRANS_SINE)
-	tween.tween_property(_body, "rotation", Vector3(-PI / 2, yaw, 0), 0.9).set_trans(Tween.TRANS_SINE)
+	tween.tween_property(_body, "rotation", Vector3(PI / 2 if face_up else -PI / 2, yaw, 0), 0.9).set_trans(Tween.TRANS_SINE)
 	await tween.finished
 
 
@@ -97,6 +99,7 @@ func stand_up() -> void:
 	tween.tween_property(_body, "rotation", Vector3(0, _body.rotation.y, 0), 0.9).set_trans(Tween.TRANS_SINE)
 	await tween.finished
 	_lying = false
+	_body.mood = "idle"
 
 
 ## Call after something a nearby door says has changed.
@@ -134,6 +137,7 @@ func _physics_process(delta: float) -> void:
 	else:
 		velocity.y -= Settings.GRAVITY * delta
 	move_and_slide()
+	_body.walk = Vector2(velocity.x, velocity.z).length() / Settings.WALK_SPEED
 
 	if direction.length() > 0.1:
 		var target := atan2(-direction.x, -direction.z)

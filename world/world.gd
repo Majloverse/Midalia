@@ -14,11 +14,11 @@ const INTERIORS_AT := Vector3(500, 0, 0)
 
 const PLACES := [
 	{"sign": "STAZIONE CENTRALE", "road": "main", "along": -70, "side": -1, "width": 30, "depth": 16, "height": 12,
-		"color": Color(0.75, 0.7, 0.6), "prompt": "Enter the station", "action": "message", "message": "Nothing for you here. You just got off the train."},
+		"color": Color(0.75, 0.7, 0.6), "prompt": "Enter the station", "action": "enter"},
 	{"sign": "BANCA", "road": "main", "along": 28, "side": -1, "width": 16, "depth": 12, "height": 10,
 		"color": Color(0.8, 0.8, 0.75), "prompt": "Enter the bank", "action": "bank"},
 	{"sign": "UNIVERSITÀ", "road": "main", "along": 70, "side": 1, "width": 34, "depth": 20, "height": 14,
-		"color": Color(0.7, 0.55, 0.45), "prompt": "Enter the university", "action": "message", "message": "School hasn't started yet."},
+		"color": Color(0.7, 0.55, 0.45), "prompt": "Enter the university", "action": "enter", "hours": [8, 20]},
 	{"sign": "VIA ROMA 12", "road": "main", "along": -22, "side": 1, "width": 14, "depth": 12, "height": 18,
 		"color": Color(0.85, 0.65, 0.4), "prompt": "Go up to the party", "action": "party"},
 	{"sign": "VIA VERDI 3", "road": "cross", "along": 40, "side": 1, "width": 12, "depth": 12, "height": 15,
@@ -36,8 +36,6 @@ const FILLERS := [
 	["cross", 52, -1, 14, 14], ["cross", -42, 1, 14, 17],
 ]
 const FILLER_COLORS := [Color(0.72, 0.68, 0.62), Color(0.78, 0.7, 0.58), Color(0.66, 0.62, 0.6), Color(0.8, 0.74, 0.66)]
-const CLOTHES := [Color(0.7, 0.2, 0.25), Color(0.2, 0.55, 0.4), Color(0.75, 0.6, 0.15), Color(0.45, 0.25, 0.6), Color(0.15, 0.5, 0.65), Color(0.8, 0.4, 0.15)]
-const SKINS := [Color(0.95, 0.8, 0.68), Color(0.82, 0.62, 0.48), Color(0.6, 0.42, 0.3), Color(0.42, 0.28, 0.2)]
 ## Each student flat's walls and furniture colour.
 const FLAT_LOOKS := {
 	"VIA VERDI 3": [Color(0.85, 0.78, 0.68), Color(0.65, 0.25, 0.25)],
@@ -93,14 +91,24 @@ func _ready() -> void:
 	_bank.closed.connect(_on_bank_closed)
 	_bank.pass_time = _wait_at_bank
 	_player = Player.new()
-	_player.position = Vector3(-70, 0.1, -3)
 	add_child(_player)
 	_player.prompt_changed.connect(_hud.set_prompt)
 	_player.interacted.connect(_on_interact)
 	Game.notice.connect(_hud.show_message)
 	Game.shelter_changed.connect(_refresh_flat_doors)
 	Game.night_ended.connect(_on_night_ended)
-	_hud.show_message("You just landed in Milan. The party at Via Roma 12 starts at 21:00. Tab for your phone.")
+	if Game.loaded_from_save:
+		# Carry on from where you last woke up.
+		_inside = Game.saved_inside
+		_player.teleport(Game.saved_position, 0.0)
+		_player.set_camera_distance(Settings.CAMERA_DISTANCE_INDOORS if _inside != "" else Settings.CAMERA_DISTANCE)
+		_ask_continue()
+	else:
+		# A new game starts as you step off the train.
+		_inside = "STAZIONE CENTRALE"
+		_player.teleport(_interiors[_inside].arrival, -PI / 2)
+		_player.set_camera_distance(Settings.CAMERA_DISTANCE_INDOORS)
+		_hud.show_message("You just got off the train in Milan. The party at Via Roma 12 starts at 21:00. Tab for your phone.")
 
 
 func _process(_delta: float) -> void:
@@ -127,6 +135,15 @@ func _on_interact(area: Area3D) -> void:
 	match area.get_meta("action", "message"):
 		"message":
 			_hud.show_message(area.get_meta("message"))
+		"enter":
+			var hours: Array = area.get_meta("hours")
+			if hours.is_empty() or (Game.hour() >= hours[0] and Game.hour() < hours[1]):
+				await _enter(area.get_meta("sign"))
+			else:
+				_hud.show_message("Closed. It is open %d:00 to %d:00." % hours)
+		"notices":
+			var tuition := "Your tuition is paid." if Game.tuition_owed <= 0 else "You still owe %d euro in tuition. No payment, no exams." % Game.tuition_owed
+			_hud.show_message("Exams are on days 10, 20 and 30. Today is day %d. %s" % [Game.day, tuition])
 		"bank":
 			if Game.bank_is_open():
 				await _enter("BANCA")
@@ -195,6 +212,7 @@ func _bring_host_home(host: Person) -> void:
 		npc.reparent(room)
 		npc.position = _interiors[host.home].host_spot
 		npc.rotation = Vector3.ZERO
+		npc.get_meta("figure").mood = "idle"
 
 
 func _refresh_flat_doors() -> void:
@@ -222,7 +240,8 @@ func _sleep(lie_at: Vector3, lie_yaw: float) -> void:
 	Game.modal_open = false
 	Game.clock_running = true
 	_player.refresh_prompt()
-	_hud.show_message(text)
+	_autosave()
+	_hud.show_message(text + " Game saved.")
 
 
 func _on_night_ended() -> void:
@@ -252,7 +271,7 @@ func _pass_out() -> void:
 		# Wherever you were, they throw you out.
 		await _leave()
 		Game.modal_open = true
-	await _player.lie_down(_player.global_position + Vector3(0, 0.25, 0), _player.facing())
+	await _player.lie_down(_player.global_position + Vector3(0, 0.14, 0), _player.facing(), false)
 	await get_tree().create_timer(0.6).timeout
 
 	var damages: Array = Settings.STREET_DAMAGE
@@ -285,7 +304,19 @@ func _pass_out() -> void:
 	Game.modal_open = false
 	Game.clock_running = true
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-	_hud.show_message("You wake up on the pavement. It's 9:00.")
+	_autosave()
+	_hud.show_message("You wake up on the pavement. It's 9:00. Game saved.")
+
+
+## The game saves itself each time you wake up. There is one save and no manual saving.
+func _autosave() -> void:
+	if Game.wellbeing > 0:
+		Game.save_game(_inside, _player.global_position)
+
+
+## Starting the game with a save: carry on, or throw it away and start over.
+func _ask_continue() -> void:
+	_show_end("Midalia\n\nYou have a saved game.\nDay %d, %s. Wellbeing %d%%." % [Game.day, Game.clock_text(), Game.wellbeing], "Continue", false, "New game")
 
 
 ## The three hours of forms at the bank, shown as time rolling by.
@@ -312,11 +343,12 @@ func _on_bank_closed() -> void:
 
 func _show_game_over() -> void:
 	_game_over = true
+	Game.delete_save()
 	_show_end("Your wellbeing hit zero.\nMilan won. You go home on day %d." % Game.day, "", true)
 
 
 ## A full-screen ending. A non-empty keep_playing adds a button that closes it and carries on.
-func _show_end(text: String, keep_playing: String, final: bool) -> void:
+func _show_end(text: String, keep_playing: String, final: bool, restart: String = "Start again") -> void:
 	Game.modal_open = true
 	Game.clock_running = false
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -349,10 +381,11 @@ func _show_end(text: String, keep_playing: String, final: bool) -> void:
 			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED)
 		column.add_child(carry_on)
 	var again := Button.new()
-	again.text = "Start again"
+	again.text = restart
 	again.custom_minimum_size = Vector2(220, 56)
 	again.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	again.pressed.connect(func():
+		Game.delete_save()
 		Game.reset()
 		get_tree().reload_current_scene())
 	column.add_child(again)
@@ -436,6 +469,7 @@ func _build_building(road: String, along: float, side: int, width: float, depth:
 	var doorstep := Build.trigger(lot, Vector3(0, 1.5, 2), Vector3(4, 3, 4), place.prompt, place.action)
 	doorstep.set_meta("sign", place.sign)
 	doorstep.set_meta("message", place.get("message", ""))
+	doorstep.set_meta("hours", place.get("hours", []))
 	if place.action == "flat":
 		_flat_doors[place.sign] = doorstep
 	# Coming back out, you stand on the doorstep with your back to the building.
@@ -445,6 +479,8 @@ func _build_building(road: String, along: float, side: int, width: float, depth:
 func _build_interiors() -> void:
 	_interiors["VIA ROMA 12"] = Interiors.party(self, INTERIORS_AT)
 	_interiors["BANCA"] = Interiors.bank(self, INTERIORS_AT + Vector3(0, 0, 60))
+	_interiors["STAZIONE CENTRALE"] = Interiors.station(self, INTERIORS_AT + Vector3(100, 0, 0))
+	_interiors["UNIVERSITÀ"] = Interiors.university(self, INTERIORS_AT + Vector3(100, 0, 60))
 	var i := 0
 	for sign in FLAT_LOOKS:
 		i += 1
@@ -457,7 +493,8 @@ func _build_interiors() -> void:
 		var person := Game.partygoers[n]
 		var spot: Vector3 = spots[n % spots.size()]
 		# Facing the middle of the room.
-		var npc := Build.person(party_room, spot, atan2(spot.x, spot.z), CLOTHES[n % CLOTHES.size()], SKINS[Game.rng.randi() % SKINS.size()])
+		var npc := Build.person(party_room, spot, atan2(spot.x, spot.z), person.look)
+		npc.get_meta("figure").mood = "dance"
 		var tag := Label3D.new()
 		tag.text = person.name
 		tag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
