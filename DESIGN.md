@@ -27,7 +27,9 @@ A broke international student lands in Milan with 15,500 euro in cash and owes t
   - **too nice**: people help but don't become friends
   - **mean**: people refuse; being mean to several people makes strangers mad
 - **The game's rules decide every outcome.** The language model only writes the character's reply in their voice.
-- Model: a small local model, tried first with Gemma 3 270M (game-character fine-tune). Built so the model can be swapped. Move up to roughly 1B, then to a cloud model, only if local isn't fun.
+- Model: Gemma 3 4B, running locally (chosen 18 November 2026 after testing models from 270M to 4B; smaller ones were faster but less in character). Built so the model can be swapped.
+- Tone is sorted by a separate small meaning-comparison model (bge-small) against example messages. Requests are spotted by keywords.
+- Replies to requests and insults open with a line the game wrote, so the outcome is always clear; the model adds one line of personality.
 - Everyone texts in casual English, swearing allowed. Italian appears only on signs and from strangers the player can't talk to.
 - Each person remembers a short summary of past conversations (what was asked, rudeness, debts). The game keeps the summary and gives it to the model as background.
 

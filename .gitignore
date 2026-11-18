@@ -8,3 +8,6 @@ tools/
 
 # Language models are large; download them, don't commit them
 models/*.gguf
+
+# NobodyWho plugin binary is over the GitHub 100 MB limit; get it from the NobodyWho releases page
+addons/nobodywho/*.dll
