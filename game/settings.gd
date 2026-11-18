@@ -52,6 +52,47 @@ const NEW_FRIEND_WELLBEING := 8
 const NEW_FRIEND_CRED := 3
 const LOAN_AMOUNT := 50
 
+# --- School ---
+const TUITION := 15000
+
+# --- Family ---
+## Money a parent sends per ask.
+const PARENT_AMOUNT := 100
+## Chance a parent gets mad on the first ask; it doubles with every ask after.
+const PARENT_MAD_CHANCE := 0.05
+const PARENT_MAD_WELLBEING := -8
+const GRANDPA_AMOUNT := 150
+const GRANDPA_DAYS_BETWEEN_GIFTS := 14
+const SISTER_NASTY_CHANCE := 0.5
+const SISTER_NASTY_CHANCE_PERIOD := 0.85
+const SISTER_PERIOD_FIRST_DAY := 8
+const SISTER_PERIOD_LAST_DAY := 14
+const SISTER_NICE_WELLBEING := 6
+const SISTER_NASTY_WELLBEING := -6
+const SISTER_NASTY_WELLBEING_PERIOD := -12
+
+# --- The first night ---
+const PARTY_SIZE := 6
+const PARTY_START_HOUR := 21
+## Hour the night ends. Still on the street then, and you pass out.
+const PASS_OUT_HOUR := 5
+## Hour you wake up after sleeping or passing out.
+const WAKE_HOUR := 9
+const COUCH_WELLBEING := 10
+const BED_WELLBEING := 20
+## What a two-faced host does after offering their couch (the rest of the time, nothing).
+const BETRAY_CANCEL_CHANCE := 0.35
+const BETRAY_STEAL_CHANCE := 0.35
+## Share of your cash a thieving host takes.
+const STEAL_SHARE_MIN := 0.10
+const STEAL_SHARE_MAX := 0.30
+
+# --- Passing out on the street ---
+## The damage wheel's segments: wellbeing lost.
+const STREET_DAMAGE := [10, 20, 30, 40]
+## The robbery wheel looks 50/50. This is the real chance of "robbed".
+const ROBBED_CHANCE := 0.6
+
 # --- Time ---
 ## Real minutes one in-game day lasts.
 const DAY_REAL_MINUTES := 20.0

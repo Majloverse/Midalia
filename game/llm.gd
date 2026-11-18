@@ -170,4 +170,6 @@ func _tidy(text: String) -> String:
 			text = text.substr(0, at)
 	if text.length() > Settings.REPLY_MAX_CHARS:
 		text = text.substr(0, Settings.REPLY_MAX_CHARS).rstrip(" ,") + "…"
-	return text.strip_edges().trim_prefix("\"").trim_suffix("\"")
+	for quote in ["\"", "“", "”"]:
+		text = text.strip_edges().trim_prefix(quote).trim_suffix(quote)
+	return text.strip_edges()

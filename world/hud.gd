@@ -17,13 +17,14 @@ func _ready() -> void:
 	_message.position.y -= 90
 	var help := _label(Control.PRESET_BOTTOM_LEFT, 15)
 	help.position = Vector2(20, -40)
-	help.text = "WASD walk   Shift run   Space jump   Mouse look   E use   Esc free the mouse"
+	help.text = "WASD walk   Shift run   Space jump   Mouse look   E use   Tab phone   Esc free the mouse"
 	help.modulate.a = 0.7
 	Game.minute_passed.connect(_refresh)
 	_refresh()
 
 
 func _process(delta: float) -> void:
+	_refresh()
 	if _message_time > 0.0:
 		_message_time -= delta
 		if _message_time <= 0.0:
