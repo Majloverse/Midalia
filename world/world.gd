@@ -17,7 +17,7 @@ const PLACES := [
 	{"sign": "STAZIONE CENTRALE", "road": "main", "along": -70, "side": -1, "width": 30, "depth": 16, "height": 12,
 		"color": Color(0.75, 0.7, 0.6), "prompt": "Enter the station", "action": "message", "message": "Nothing for you here. You just got off the train."},
 	{"sign": "BANCA", "road": "main", "along": 28, "side": -1, "width": 16, "depth": 12, "height": 10,
-		"color": Color(0.8, 0.8, 0.75), "prompt": "Enter the bank", "action": "message", "message": "The bank is open 9:00 to 16:00. Opening an account comes in the next step."},
+		"color": Color(0.8, 0.8, 0.75), "prompt": "Enter the bank", "action": "bank"},
 	{"sign": "UNIVERSITÀ", "road": "main", "along": 70, "side": 1, "width": 34, "depth": 20, "height": 14,
 		"color": Color(0.7, 0.55, 0.45), "prompt": "Enter the university", "action": "message", "message": "School hasn't started yet."},
 	{"sign": "VIA ROMA 12", "road": "main", "along": -22, "side": 1, "width": 14, "depth": 12, "height": 18,
@@ -47,6 +47,7 @@ var _hud: Hud
 var _phone: Phone
 var _talk: Talk
 var _wheel: WheelScreen
+var _bank: BankScreen
 var _player: Player
 var _flat_doors := {}  # sign -> the Area3D at that flat's door
 var _in_party := false
@@ -76,6 +77,9 @@ func _ready() -> void:
 	add_child(_talk)
 	_wheel = WheelScreen.new()
 	add_child(_wheel)
+	_bank = BankScreen.new()
+	add_child(_bank)
+	_bank.closed.connect(_on_bank_closed)
 	_player = Player.new()
 	_player.position = Vector3(-70, 0.1, -3)
 	add_child(_player)
@@ -110,6 +114,11 @@ func _on_interact(area: Area3D) -> void:
 	match area.get_meta("action", "message"):
 		"message":
 			_hud.show_message(area.get_meta("message"))
+		"bank":
+			if Game.bank_is_open():
+				_bank.open()
+			else:
+				_hud.show_message("The bank is closed. It is open %d:00 to %d:00." % [Settings.BANK_OPENS_HOUR, Settings.BANK_CLOSES_HOUR])
 		"party":
 			if Game.is_night():
 				_in_party = true
@@ -148,6 +157,8 @@ func _pass_out() -> void:
 		return
 	if _talk.is_open():
 		_talk.close()
+	if _bank.is_open():
+		_bank.close()
 	if Game.phone_open:
 		_phone.toggle()
 	Game.modal_open = true
@@ -185,8 +196,26 @@ func _pass_out() -> void:
 	_hud.show_message("You wake up on the pavement. It's 9:00.")
 
 
+## The first build's finish line: you got through a night and have a bank account.
+func _on_bank_closed() -> void:
+	if not Game.bank_account or not Game.night_survived or Game.survived_shown:
+		return
+	Game.survived_shown = true
+	var friends := Game.contacts.filter(func(p): return p.is_friend).size()
+	var text := "You survived.\n\nOne night in Milan and one Italian bank account.\n\n"
+	text += "Wellbeing %d%%\nIn your pocket: %d euro\nIn the bank: %d euro\n" % [Game.wellbeing, Game.cash, Game.bank_balance]
+	text += "Numbers in your phone: %d\nFriends: %d\n" % [Game.contacts.size() - 4, friends]
+	text += "Tuition: %s" % ("paid" if Game.tuition_owed <= 0 else "%d euro still owed" % Game.tuition_owed)
+	_show_end(text, "Keep playing", false)
+
+
 func _show_game_over() -> void:
 	_game_over = true
+	_show_end("Your wellbeing hit zero.\nMilan won. You go home on day %d." % Game.day, "", true)
+
+
+## A full-screen ending. A non-empty keep_playing adds a button that closes it and carries on.
+func _show_end(text: String, keep_playing: String, final: bool) -> void:
 	Game.modal_open = true
 	Game.clock_running = false
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -203,10 +232,21 @@ func _show_game_over() -> void:
 	column.add_theme_constant_override("separation", 20)
 	dim.add_child(column)
 	var label := Label.new()
-	label.text = "Your wellbeing hit zero.\nMilan won. You go home on day %d." % Game.day
+	label.text = text
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", 32)
+	label.add_theme_font_size_override("font_size", 32 if final else 26)
 	column.add_child(label)
+	if keep_playing != "":
+		var carry_on := Button.new()
+		carry_on.text = keep_playing
+		carry_on.custom_minimum_size = Vector2(220, 56)
+		carry_on.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		carry_on.pressed.connect(func():
+			layer.queue_free()
+			Game.modal_open = false
+			Game.clock_running = true
+			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED)
+		column.add_child(carry_on)
 	var again := Button.new()
 	again.text = "Start again"
 	again.custom_minimum_size = Vector2(220, 56)

@@ -93,6 +93,12 @@ const STREET_DAMAGE := [10, 20, 30, 40]
 ## The robbery wheel looks 50/50. This is the real chance of "robbed".
 const ROBBED_CHANCE := 0.6
 
+# --- The bank ---
+const BANK_OPENS_HOUR := 9
+const BANK_CLOSES_HOUR := 16
+## In-game hours it takes to open an account.
+const BANK_ACCOUNT_HOURS := 3
+
 # --- Time ---
 ## Real minutes one in-game day lasts.
 const DAY_REAL_MINUTES := 20.0

@@ -26,6 +26,10 @@ var notebook: Array[String]
 var mean_to: Array  # names of people you've been mean to
 ## Whoever has offered you their couch for tonight, or null.
 var shelter_host: Person
+## True once you have got through a night, by sleeping somewhere or passing out.
+var night_survived: bool
+## True once the "you survived" screen has been shown.
+var survived_shown: bool
 
 var phone_open := false
 ## True while a full-screen moment (talking, a wheel, game over) has the player's attention.
@@ -65,6 +69,8 @@ func reset() -> void:
 	notebook = []
 	mean_to = []
 	shelter_host = null
+	night_survived = false
+	survived_shown = false
 	phone_open = false
 	modal_open = false
 	clock_running = true
@@ -131,12 +137,26 @@ func total_minutes() -> int:
 	return day * 1440 + int(minutes)
 
 
+func bank_is_open() -> bool:
+	return hour() >= Settings.BANK_OPENS_HOUR and hour() < Settings.BANK_CLOSES_HOUR
+
+
 func is_night() -> bool:
 	return hour() >= Settings.PARTY_START_HOUR or hour() < Settings.PASS_OUT_HOUR
 
 
-## Jumps the clock to the next 9:00.
+## Moves the clock forward by some in-game minutes.
+func advance(game_minutes: int) -> void:
+	minutes += game_minutes
+	while minutes >= 1440.0:
+		minutes -= 1440.0
+		day += 1
+	_last_minute = -1
+
+
+## Jumps the clock to the next 9:00. Every night ends here, however it went.
 func skip_to_morning() -> void:
+	night_survived = true
 	if hour() >= Settings.WAKE_HOUR:
 		day += 1
 	minutes = Settings.WAKE_HOUR * 60.0
