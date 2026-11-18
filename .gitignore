@@ -1,0 +1,10 @@
+# Godot
+.godot/
+*.translation
+export_presets.cfg
+
+# Local tools and downloads (Godot editor, plugin archives)
+tools/
+
+# Language models are large; download them, don't commit them
+models/*.gguf
