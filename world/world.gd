@@ -1,7 +1,7 @@
 extends Node3D
-## The neighbourhood and the first night: walking, the party, finding a couch,
-## and passing out at 5:00 if you didn't. Everything is built from simple blocks
-## here; proper models replace them later.
+## The neighbourhood and the first build's story: walking, the party, finding a
+## couch, sleeping or passing out, and the bank. Everything is built from simple
+## blocks here; proper models replace them later.
 ##
 ## Two streets cross in the middle. Each place sits on the "main" street (runs
 ## east-west) or the "cross" street (runs north-south): `along` is how far down
@@ -9,9 +9,8 @@ extends Node3D
 
 const ROAD_HALF_WIDTH := 5.0
 const SETBACK := 8.0  # distance from the street's centre line to building fronts
-## The party flat's inside is a separate room, far from the streets.
-const PARTY_ROOM := Vector3(500, 0, 0)
-const PARTY_DOOR_OUTSIDE := Vector3(-22, 0.1, 5.5)
+## Interiors are separate rooms built far from the streets.
+const INTERIORS_AT := Vector3(500, 0, 0)
 
 const PLACES := [
 	{"sign": "STAZIONE CENTRALE", "road": "main", "along": -70, "side": -1, "width": 30, "depth": 16, "height": 12,
@@ -39,6 +38,12 @@ const FILLERS := [
 const FILLER_COLORS := [Color(0.72, 0.68, 0.62), Color(0.78, 0.7, 0.58), Color(0.66, 0.62, 0.6), Color(0.8, 0.74, 0.66)]
 const CLOTHES := [Color(0.7, 0.2, 0.25), Color(0.2, 0.55, 0.4), Color(0.75, 0.6, 0.15), Color(0.45, 0.25, 0.6), Color(0.15, 0.5, 0.65), Color(0.8, 0.4, 0.15)]
 const SKINS := [Color(0.95, 0.8, 0.68), Color(0.82, 0.62, 0.48), Color(0.6, 0.42, 0.3), Color(0.42, 0.28, 0.2)]
+## Each student flat's walls and furniture colour.
+const FLAT_LOOKS := {
+	"VIA VERDI 3": [Color(0.85, 0.78, 0.68), Color(0.65, 0.25, 0.25)],
+	"VIA DANTE 7": [Color(0.75, 0.82, 0.76), Color(0.25, 0.45, 0.4)],
+	"VIA MILANO 21": [Color(0.78, 0.78, 0.86), Color(0.35, 0.35, 0.6)],
+}
 
 var _sun: DirectionalLight3D
 var _environment: Environment
@@ -48,9 +53,13 @@ var _phone: Phone
 var _talk: Talk
 var _wheel: WheelScreen
 var _bank: BankScreen
+var _transition: Transition
 var _player: Player
-var _flat_doors := {}  # sign -> the Area3D at that flat's door
-var _in_party := false
+var _flat_doors := {}   # sign -> the Area3D at that flat's street door
+var _street_doors := {}  # sign -> [where you stand outside, which way you face]
+var _interiors := {}    # sign -> what Interiors built for it
+var _npcs := {}         # Person -> their body in the world
+var _inside := ""       # the sign of the building the player is in, or "" on the street
 var _game_over := false
 
 
@@ -67,7 +76,7 @@ func _ready() -> void:
 		_build_lamp(Vector3(x + 15, 0, -ROAD_HALF_WIDTH - 1.0))
 	for z in [-80, -50, -25, 25, 55, 85]:
 		_build_lamp(Vector3(ROAD_HALF_WIDTH + 1.0, 0, z))
-	_build_party_room()
+	_build_interiors()
 
 	_hud = Hud.new()
 	add_child(_hud)
@@ -77,9 +86,12 @@ func _ready() -> void:
 	add_child(_talk)
 	_wheel = WheelScreen.new()
 	add_child(_wheel)
+	_transition = Transition.new()
+	add_child(_transition)
 	_bank = BankScreen.new()
 	add_child(_bank)
 	_bank.closed.connect(_on_bank_closed)
+	_bank.pass_time = _wait_at_bank
 	_player = Player.new()
 	_player.position = Vector3(-70, 0.1, -3)
 	add_child(_player)
@@ -87,7 +99,7 @@ func _ready() -> void:
 	_player.interacted.connect(_on_interact)
 	Game.notice.connect(_hud.show_message)
 	Game.shelter_changed.connect(_refresh_flat_doors)
-	Game.night_ended.connect(_pass_out)
+	Game.night_ended.connect(_on_night_ended)
 	_hud.show_message("You just landed in Milan. The party at Via Roma 12 starts at 21:00. Tab for your phone.")
 
 
@@ -101,7 +113,8 @@ func _process(_delta: float) -> void:
 	_sun.light_energy = daylight * 1.2
 	_sun.light_color = Color(1.0, 0.75, 0.55).lerp(Color.WHITE, clampf(height * 2.5, 0.0, 1.0))
 	_environment.background_energy_multiplier = lerpf(0.06, 1.0, daylight)
-	_environment.ambient_light_energy = lerpf(0.35, 1.0, daylight)
+	# Rooms have their own lamps, so the sky shouldn't flood them.
+	_environment.ambient_light_energy = lerpf(0.35, 1.0, daylight) * (0.45 if _inside != "" else 1.0)
 	for lamp in _lamps:
 		lamp.visible = daylight < 0.6
 	if Game.wellbeing <= 0 and not _game_over and not Game.modal_open:
@@ -116,29 +129,72 @@ func _on_interact(area: Area3D) -> void:
 			_hud.show_message(area.get_meta("message"))
 		"bank":
 			if Game.bank_is_open():
-				_bank.open()
+				await _enter("BANCA")
 			else:
 				_hud.show_message("The bank is closed. It is open %d:00 to %d:00." % [Settings.BANK_OPENS_HOUR, Settings.BANK_CLOSES_HOUR])
+		"teller":
+			if Game.bank_is_open():
+				_bank.open()
+			else:
+				_hud.show_message("\"We are closed. Come back tomorrow.\"")
 		"party":
 			if Game.is_night():
-				_in_party = true
-				_player.teleport(PARTY_ROOM + Vector3(0, 0.1, 2.5), 0.0)
+				await _enter("VIA ROMA 12")
 				_hud.show_message("The party. Walk up to people and press E to talk.")
 			else:
 				_hud.show_message("Nobody answers. The party starts at 21:00.")
-		"leave_party":
-			_in_party = false
-			_player.teleport(PARTY_DOOR_OUTSIDE, 0.0)
-		"talk":
-			_talk.open(area.get_meta("person"))
 		"flat":
+			var sign: String = area.get_meta("sign")
 			var host := Game.shelter_host
-			if host == null or host.home != area.get_meta("sign"):
+			if host == null or host.home != sign:
 				_hud.show_message("A student flat. Nobody here has invited you.")
 			elif not Game.is_night():
 				_hud.show_message("%s isn't home. Come back tonight." % host.name)
 			else:
-				_hud.show_message(Game.sleep_on_couch())
+				_bring_host_home(host)
+				await _enter(sign)
+				_hud.show_message("%s's place. The couch is yours." % host.name)
+		"leave":
+			_leave()
+		"talk":
+			_talk.open(area.get_meta("person"))
+		"sleep":
+			if Game.shelter_host == null or Game.shelter_host.home != _inside:
+				_hud.show_message("You weren't invited to stay.")
+			else:
+				_sleep(area.get_meta("lie_at"), area.get_meta("lie_yaw"))
+
+
+## Walks through a door into a building, with a short fade.
+func _enter(sign: String) -> void:
+	_inside = sign
+	await _through_door(_interiors[sign].entry, 0.0, Settings.CAMERA_DISTANCE_INDOORS)
+
+
+func _leave() -> void:
+	var door: Array = _street_doors[_inside]
+	_inside = ""
+	await _through_door(door[0], door[1], Settings.CAMERA_DISTANCE)
+
+
+func _through_door(to: Vector3, yaw: float, camera_distance: float) -> void:
+	Game.modal_open = true
+	await _transition.fade(1.0, 0.25)
+	_player.teleport(to, yaw)
+	_player.set_camera_distance(camera_distance)
+	await get_tree().create_timer(0.1).timeout
+	await _transition.fade(0.0, 0.3)
+	Game.modal_open = false
+
+
+## The host goes home when you do: their body moves from the party to their flat.
+func _bring_host_home(host: Person) -> void:
+	var npc: Node3D = _npcs[host]
+	var room: Node3D = _interiors[host.home].room
+	if npc.get_parent() != room:
+		npc.reparent(room)
+		npc.position = _interiors[host.home].host_spot
+		npc.rotation = Vector3.ZERO
 
 
 func _refresh_flat_doors() -> void:
@@ -146,13 +202,30 @@ func _refresh_flat_doors() -> void:
 		var host := Game.shelter_host
 		var prompt := "Ring the bell"
 		if host != null and host.home == sign:
-			prompt = "Sleep on %s's couch" % host.name
+			prompt = "Go up to %s's flat" % host.name
 		_flat_doors[sign].set_meta("prompt", prompt)
 	_player.refresh_prompt()
 
 
-## 5:00 and still not asleep: you pass out where you are. Two wheels decide the cost.
-func _pass_out() -> void:
+## Lie down, fade out, watch the night roll by, wake up.
+func _sleep(lie_at: Vector3, lie_yaw: float) -> void:
+	Game.modal_open = true
+	Game.clock_running = false
+	_hud.set_prompt("")
+	await _player.lie_down(lie_at, lie_yaw)
+	await get_tree().create_timer(0.5).timeout
+	await _transition.fade(1.0, 1.5)
+	await _transition.roll_clock(Game.minutes_until(Settings.WAKE_HOUR), 4.0, "z z z")
+	var text := Game.sleep_on_couch()
+	await _transition.fade(0.0, 1.5)
+	await _player.stand_up()
+	Game.modal_open = false
+	Game.clock_running = true
+	_player.refresh_prompt()
+	_hud.show_message(text)
+
+
+func _on_night_ended() -> void:
 	if _game_over:
 		return
 	if _talk.is_open():
@@ -161,11 +234,26 @@ func _pass_out() -> void:
 		_bank.close()
 	if Game.phone_open:
 		_phone.toggle()
+	# Awake at 5:00 in a flat you were invited to: you drop onto the couch.
+	if Game.shelter_host != null and Game.shelter_host.home == _inside:
+		for area in _interiors[_inside].room.get_children():
+			if area is Area3D and area.get_meta("action", "") == "sleep":
+				_sleep(area.get_meta("lie_at"), area.get_meta("lie_yaw"))
+				return
+	_pass_out()
+
+
+## 5:00 and nowhere to sleep: you pass out on the street. Two wheels decide the cost.
+func _pass_out() -> void:
 	Game.modal_open = true
 	Game.clock_running = false
-	if _in_party:
-		_in_party = false
-		_player.teleport(PARTY_DOOR_OUTSIDE, 0.0)
+	_hud.set_prompt("")
+	if _inside != "":
+		# Wherever you were, they throw you out.
+		await _leave()
+		Game.modal_open = true
+	await _player.lie_down(_player.global_position + Vector3(0, 0.25, 0), _player.facing())
+	await get_tree().create_timer(0.6).timeout
 
 	var damages: Array = Settings.STREET_DAMAGE
 	var hit := Game.rng.randi() % damages.size()
@@ -187,13 +275,26 @@ func _pass_out() -> void:
 			Game.cash = 0
 			Game.add_note("I passed out on the street and woke up with empty pockets. %d euro, gone." % lost)
 
+	await _transition.fade(1.0, 1.0)
+	await _transition.roll_clock(Game.minutes_until(Settings.WAKE_HOUR), 3.0, "…")
 	Game.shelter_host = null
+	Game.night_survived = true
 	Game.shelter_changed.emit()
-	Game.skip_to_morning()
+	await _transition.fade(0.0, 1.5)
+	await _player.stand_up()
 	Game.modal_open = false
 	Game.clock_running = true
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	_hud.show_message("You wake up on the pavement. It's 9:00.")
+
+
+## The three hours of forms at the bank, shown as time rolling by.
+func _wait_at_bank(game_minutes: int) -> void:
+	Game.clock_running = false
+	await _transition.fade(1.0, 0.8)
+	await _transition.roll_clock(game_minutes, 3.0, "Forms. A stamp. More forms. Another stamp.")
+	await _transition.fade(0.0, 0.8)
+	Game.clock_running = true
 
 
 ## The first build's finish line: you got through a night and have a bank account.
@@ -281,13 +382,13 @@ func _build_sky() -> void:
 
 
 func _build_ground() -> void:
-	_box(self, Vector3(0, -0.5, 0), Vector3(240, 1, 240), Color(0.55, 0.55, 0.5), true)       # pavement
-	_box(self, Vector3(0, 0.02, 0), Vector3(240, 0.04, ROAD_HALF_WIDTH * 2), Color(0.2, 0.2, 0.22), false)  # main street
-	_box(self, Vector3(0, 0.02, 0), Vector3(ROAD_HALF_WIDTH * 2, 0.04, 240), Color(0.2, 0.2, 0.22), false)  # cross street
+	Build.box(self, Vector3(0, -0.5, 0), Vector3(240, 1, 240), Color(0.55, 0.55, 0.5), true)       # pavement
+	Build.box(self, Vector3(0, 0.02, 0), Vector3(240, 0.04, ROAD_HALF_WIDTH * 2), Color(0.2, 0.2, 0.22))  # main street
+	Build.box(self, Vector3(0, 0.02, 0), Vector3(ROAD_HALF_WIDTH * 2, 0.04, 240), Color(0.2, 0.2, 0.22))  # cross street
 	for i in range(-110, 111, 8):  # centre line dashes
 		if absi(i) > 6:
-			_box(self, Vector3(i, 0.05, 0), Vector3(3, 0.02, 0.2), Color(0.9, 0.9, 0.85), false)
-			_box(self, Vector3(0, 0.05, i), Vector3(0.2, 0.02, 3), Color(0.9, 0.9, 0.85), false)
+			Build.box(self, Vector3(i, 0.05, 0), Vector3(3, 0.02, 0.2), Color(0.9, 0.9, 0.85))
+			Build.box(self, Vector3(0, 0.05, i), Vector3(0.2, 0.02, 3), Color(0.9, 0.9, 0.85))
 	# Invisible walls at the edge of the neighbourhood.
 	for edge in [Vector3(115, 0, 0), Vector3(-115, 0, 0), Vector3(0, 0, 115), Vector3(0, 0, -115)]:
 		var wall := StaticBody3D.new()
@@ -312,23 +413,19 @@ func _build_building(road: String, along: float, side: int, width: float, depth:
 		lot.rotation.y = PI / 2 if side < 0 else -PI / 2
 	add_child(lot)
 
-	_box(lot, Vector3(0, height / 2, -depth / 2), Vector3(width, height, depth), color, true)
+	Build.box(lot, Vector3(0, height / 2, -depth / 2), Vector3(width, height, depth), color, true)
 	# Windows on the street side; they glow a little so the street has life at night.
 	var columns := int(width / 3.5)
 	for row in range(1, int(height / 3.2)):
 		for column in columns:
 			var x := (column - (columns - 1) / 2.0) * 3.5
-			var lit := (int(along) + row * 7 + column * 13) % 3 != 0
-			var window := _box(lot, Vector3(x, 1.5 + row * 3.2, 0.03), Vector3(1.4, 1.8, 0.06), Color(0.15, 0.18, 0.25), false)
-			if lit:
-				var material: StandardMaterial3D = window.material_override
-				material.emission_enabled = true
-				material.emission = Color(1.0, 0.85, 0.5)
-				material.emission_energy_multiplier = 0.6
+			var window := Build.box(lot, Vector3(x, 1.5 + row * 3.2, 0.03), Vector3(1.4, 1.8, 0.06), Color(0.15, 0.18, 0.25))
+			if (int(along) + row * 7 + column * 13) % 3 != 0:
+				Build.glow(window, Color(1.0, 0.85, 0.5), 0.6)
 
 	if place.is_empty():
 		return
-	_box(lot, Vector3(0, 1.2, 0.05), Vector3(1.6, 2.4, 0.1), Color(0.25, 0.15, 0.1), false)  # door
+	Build.box(lot, Vector3(0, 1.2, 0.05), Vector3(1.6, 2.4, 0.1), Color(0.25, 0.15, 0.1))  # door
 	var sign := Label3D.new()
 	sign.text = place.sign
 	sign.font_size = 96
@@ -336,53 +433,31 @@ func _build_building(road: String, along: float, side: int, width: float, depth:
 	sign.outline_size = 24
 	sign.position = Vector3(0, 3.3, 0.15)
 	lot.add_child(sign)
-	var doorstep := _trigger(lot, Vector3(0, 1.5, 2), Vector3(4, 3, 4), place.prompt, place.action)
+	var doorstep := Build.trigger(lot, Vector3(0, 1.5, 2), Vector3(4, 3, 4), place.prompt, place.action)
 	doorstep.set_meta("sign", place.sign)
 	doorstep.set_meta("message", place.get("message", ""))
 	if place.action == "flat":
 		_flat_doors[place.sign] = doorstep
+	# Coming back out, you stand on the doorstep with your back to the building.
+	_street_doors[place.sign] = [lot.to_global(Vector3(0, 0.1, 2.5)), lot.rotation.y + PI]
 
 
-## The inside of the party flat: one room, coloured lights, six students.
-func _build_party_room() -> void:
-	var room := Node3D.new()
-	room.position = PARTY_ROOM
-	add_child(room)
-	var wall := Color(0.3, 0.22, 0.3)
-	_box(room, Vector3(0, -0.25, 0), Vector3(16, 0.5, 12), Color(0.35, 0.25, 0.18), true)   # floor
-	_box(room, Vector3(0, 4.25, 0), Vector3(16, 0.5, 12), Color(0.2, 0.18, 0.2), true)      # ceiling
-	_box(room, Vector3(0, 2, -6.25), Vector3(16.5, 4.5, 0.5), wall, true)
-	_box(room, Vector3(0, 2, 6.25), Vector3(16.5, 4.5, 0.5), wall, true)
-	_box(room, Vector3(-8.25, 2, 0), Vector3(0.5, 4.5, 12), wall, true)
-	_box(room, Vector3(8.25, 2, 0), Vector3(0.5, 4.5, 12), wall, true)
-	_box(room, Vector3(0, 1.2, 5.95), Vector3(1.6, 2.4, 0.1), Color(0.25, 0.15, 0.1), false)  # the way out
-	_trigger(room, Vector3(0, 1.5, 5.2), Vector3(3, 3, 1.4), "Leave the party", "leave_party")
-	_box(room, Vector3(-6, 0.5, -4.5), Vector3(3, 1, 1.2), Color(0.5, 0.2, 0.2), true)       # sofa
-	_box(room, Vector3(5.5, 0.45, -4.8), Vector3(3.5, 0.9, 1), Color(0.25, 0.2, 0.15), true)  # drinks table
-	for light in [[Vector3(-5, 3.5, -2), Color(1.0, 0.3, 0.6)], [Vector3(5, 3.5, -2), Color(0.3, 0.6, 1.0)], [Vector3(0, 3.5, 3), Color(1.0, 0.8, 0.4)]]:
-		var lamp := OmniLight3D.new()
-		lamp.position = light[0]
-		lamp.light_color = light[1]
-		lamp.light_energy = 3.0
-		lamp.omni_range = 11.0
-		room.add_child(lamp)
+func _build_interiors() -> void:
+	_interiors["VIA ROMA 12"] = Interiors.party(self, INTERIORS_AT)
+	_interiors["BANCA"] = Interiors.bank(self, INTERIORS_AT + Vector3(0, 0, 60))
+	var i := 0
+	for sign in FLAT_LOOKS:
+		i += 1
+		_interiors[sign] = Interiors.flat(self, INTERIORS_AT + Vector3(0, 0, 60 + i * 60), FLAT_LOOKS[sign][0], FLAT_LOOKS[sign][1])
 
-	var spots := [Vector3(-5.5, 0, -1.5), Vector3(-2.5, 0, -3.5), Vector3(1.5, 0, -3), Vector3(5, 0, -1.5), Vector3(-4, 0, 2), Vector3(4.5, 0, 2.5)]
-	for i in Game.partygoers.size():
-		var person := Game.partygoers[i]
-		var spot: Vector3 = spots[i % spots.size()]
-		var npc := StaticBody3D.new()
-		npc.position = spot
-		var shape := CollisionShape3D.new()
-		var capsule := CapsuleShape3D.new()
-		capsule.radius = 0.35
-		capsule.height = 1.8
-		shape.shape = capsule
-		shape.position.y = 0.9
-		npc.add_child(shape)
-		var body := Body.build(CLOTHES[i % CLOTHES.size()], SKINS[Game.rng.randi() % SKINS.size()])
-		body.rotation.y = atan2(spot.x, spot.z)  # face the middle of the room
-		npc.add_child(body)
+	# The six students at the party.
+	var party_room: Node3D = _interiors["VIA ROMA 12"].room
+	var spots := [Vector3(-5.5, 0, -1.5), Vector3(-2.5, 0, -3.3), Vector3(2.2, 0, -3), Vector3(5, 0, -1.5), Vector3(-4, 0, 2), Vector3(4.5, 0, 2.5)]
+	for n in Game.partygoers.size():
+		var person := Game.partygoers[n]
+		var spot: Vector3 = spots[n % spots.size()]
+		# Facing the middle of the room.
+		var npc := Build.person(party_room, spot, atan2(spot.x, spot.z), CLOTHES[n % CLOTHES.size()], SKINS[Game.rng.randi() % SKINS.size()])
 		var tag := Label3D.new()
 		tag.text = person.name
 		tag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
@@ -391,55 +466,11 @@ func _build_party_room() -> void:
 		tag.outline_size = 12
 		tag.position.y = 2.15
 		npc.add_child(tag)
-		room.add_child(npc)
-		var reach := _trigger(npc, Vector3(0, 1, 0), Vector3(2.6, 2, 2.6), "Talk to %s" % person.name, "talk")
+		var reach := Build.trigger(npc, Vector3(0, 1, 0), Vector3(2.6, 2, 2.6), "Talk to %s" % person.name, "talk")
 		reach.set_meta("person", person)
-
-
-func _trigger(parent: Node3D, at: Vector3, size: Vector3, prompt: String, action: String) -> Area3D:
-	var area := Area3D.new()
-	var shape := CollisionShape3D.new()
-	var box := BoxShape3D.new()
-	box.size = size
-	shape.shape = box
-	area.add_child(shape)
-	area.position = at
-	area.set_meta("prompt", prompt)
-	area.set_meta("action", action)
-	parent.add_child(area)
-	return area
+		_npcs[person] = npc
 
 
 func _build_lamp(at: Vector3) -> void:
-	_box(self, at + Vector3(0, 2.5, 0), Vector3(0.15, 5, 0.15), Color(0.15, 0.15, 0.15), false)
-	var lamp := OmniLight3D.new()
-	lamp.position = at + Vector3(0, 5.2, 0)
-	lamp.omni_range = 16.0
-	lamp.light_energy = 2.5
-	lamp.light_color = Color(1.0, 0.8, 0.55)
-	add_child(lamp)
-	_lamps.append(lamp)
-
-
-func _box(parent: Node3D, at: Vector3, size: Vector3, color: Color, solid: bool) -> MeshInstance3D:
-	var mesh_instance := MeshInstance3D.new()
-	var mesh := BoxMesh.new()
-	mesh.size = size
-	mesh_instance.mesh = mesh
-	var material := StandardMaterial3D.new()
-	material.albedo_color = color
-	mesh_instance.material_override = material
-	if solid:
-		var body := StaticBody3D.new()
-		var shape := CollisionShape3D.new()
-		var box := BoxShape3D.new()
-		box.size = size
-		shape.shape = box
-		body.add_child(shape)
-		body.position = at
-		body.add_child(mesh_instance)
-		parent.add_child(body)
-	else:
-		mesh_instance.position = at
-		parent.add_child(mesh_instance)
-	return mesh_instance
+	Build.box(self, at + Vector3(0, 2.5, 0), Vector3(0.15, 5, 0.15), Color(0.15, 0.15, 0.15))
+	_lamps.append(Build.light(self, at + Vector3(0, 5.2, 0), Color(1.0, 0.8, 0.55), 2.5, 16.0))

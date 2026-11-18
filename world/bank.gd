@@ -4,6 +4,9 @@ extends CanvasLayer
 
 signal closed
 
+## Set by the world: shows the hours of waiting going by. Takes in-game minutes.
+var pass_time: Callable
+
 var _panel: PanelContainer
 var _column: VBoxContainer
 var _amount: LineEdit
@@ -86,7 +89,12 @@ func _show(message: String = "") -> void:
 
 
 func _open_account() -> void:
-	Game.advance(Settings.BANK_ACCOUNT_HOURS * 60)
+	_panel.visible = false
+	if pass_time.is_valid():
+		await pass_time.call(Settings.BANK_ACCOUNT_HOURS * 60)
+	else:
+		Game.advance(Settings.BANK_ACCOUNT_HOURS * 60)
+	_panel.visible = true
 	Game.bank_account = true
 	Game.add_note("I have an Italian bank account. Family can send money now, and I can pay tuition in the University app.")
 	_show("%d hours later, at %s, you have an account. Money in it can't be stolen." % [Settings.BANK_ACCOUNT_HOURS, Game.clock_text()])

@@ -208,7 +208,7 @@ func _offer_couch(person: Person, result: Dictionary) -> void:
 		if roll < Settings.BETRAY_CANCEL_CHANCE:
 			# They'll back out later tonight, but never so late that there's no time left at all.
 			person.betrayal = "cancel"
-			var latest := total_minutes() + _minutes_until(Settings.PASS_OUT_HOUR) - 30
+			var latest := total_minutes() + minutes_until(Settings.PASS_OUT_HOUR) - 30
 			person.cancel_at = mini(total_minutes() + rng.randi_range(60, 180), latest)
 		elif roll < Settings.BETRAY_CANCEL_CHANCE + Settings.BETRAY_STEAL_CHANCE:
 			person.betrayal = "steal"
@@ -228,11 +228,12 @@ func _check_cancelled_couch() -> void:
 	shelter_changed.emit()
 
 
-## Sleeps on the host's couch. Returns what the player wakes up to.
+## What a night on the host's couch does to you. The clock is moved separately,
+## by the sleeping animation. Returns what the player wakes up to.
 func sleep_on_couch() -> String:
 	var host := shelter_host
 	shelter_host = null
-	skip_to_morning()
+	night_survived = true
 	wellbeing = clampi(wellbeing + Settings.COUCH_WELLBEING, 0, 100)
 	host.remember("They slept on your couch.")
 	var text := "You slept on %s's couch. Wellbeing +%d." % [host.name, Settings.COUCH_WELLBEING]
@@ -247,7 +248,7 @@ func sleep_on_couch() -> String:
 	return text
 
 
-func _minutes_until(hour_of_day: int) -> int:
+func minutes_until(hour_of_day: int) -> int:
 	var target := hour_of_day * 60
 	var now := int(minutes)
 	return target - now if target > now else target + 1440 - now

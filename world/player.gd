@@ -11,6 +11,8 @@ var _pitch := -0.25
 var _pivot: Node3D
 var _body: Node3D
 var _nearby: Array[Area3D] = []
+var _lying := false
+var _arm: SpringArm3D
 
 
 func _ready() -> void:
@@ -31,6 +33,7 @@ func _ready() -> void:
 	_pivot.position.y = 1.6
 	add_child(_pivot)
 	var arm := SpringArm3D.new()
+	_arm = arm
 	arm.spring_length = Settings.CAMERA_DISTANCE
 	arm.margin = 0.2
 	arm.add_excluded_object(get_rid())
@@ -61,9 +64,39 @@ func _busy() -> bool:
 ## Moves the player somewhere else at once, facing the given direction.
 func teleport(to: Vector3, yaw: float) -> void:
 	position = to
+	_nearby.clear()
+	prompt_changed.emit("")
 	velocity = Vector3.ZERO
 	_yaw = yaw
 	_body.rotation.y = yaw
+
+
+## How far behind the player the camera sits. Rooms need it closer than streets.
+func set_camera_distance(distance: float) -> void:
+	_arm.spring_length = distance
+
+
+## Which way the body is facing.
+func facing() -> float:
+	return _body.rotation.y
+
+
+## Lies down with feet at `at` and head pointing along `yaw`.
+func lie_down(at: Vector3, yaw: float) -> void:
+	_lying = true
+	velocity = Vector3.ZERO
+	var tween := create_tween().set_parallel()
+	tween.tween_property(_body, "global_position", at, 0.9).set_trans(Tween.TRANS_SINE)
+	tween.tween_property(_body, "rotation", Vector3(-PI / 2, yaw, 0), 0.9).set_trans(Tween.TRANS_SINE)
+	await tween.finished
+
+
+func stand_up() -> void:
+	var tween := create_tween().set_parallel()
+	tween.tween_property(_body, "position", Vector3.ZERO, 0.9).set_trans(Tween.TRANS_SINE)
+	tween.tween_property(_body, "rotation", Vector3(0, _body.rotation.y, 0), 0.9).set_trans(Tween.TRANS_SINE)
+	await tween.finished
+	_lying = false
 
 
 ## Call after something a nearby door says has changed.
@@ -88,6 +121,8 @@ func _unhandled_input(event: InputEvent) -> void:
 func _physics_process(delta: float) -> void:
 	_pivot.rotation = Vector3(_pitch, _yaw, 0)
 
+	if _lying:
+		return
 	var input := Vector2.ZERO if _busy() else Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 	var direction := Vector3(input.x, 0, input.y).rotated(Vector3.UP, _yaw)
 	var speed: float = Settings.RUN_SPEED if Input.is_action_pressed("run") else Settings.WALK_SPEED
