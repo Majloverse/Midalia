@@ -9,8 +9,8 @@ tools/
 # Language models are large; download them, don't commit them
 models/*.gguf
 
-# NobodyWho plugin binary is over the GitHub 100 MB limit; get it from the NobodyWho releases page
-addons/nobodywho/*.dll
+# The NobodyWho plugin's Windows binary is in the repo through Git LFS (it is over the GitHub 100 MB limit).
+# The Linux one is not; get it from the NobodyWho releases page.
 
 # OpenStreetMap download kept by world/milan/build_map.py
 world/milan/osm.json
