@@ -5,10 +5,11 @@
 Writes, next to this file:
     milan.glb.gz  the city: extruded buildings, roads, paths, squares, parks, water, ground
     places.json   where each of the game's doors sits on a real building, and the street lamps
+    trees.bin     where the trees stand: x, z, x, z, ... as 32-bit floats
 The OpenStreetMap download is kept as osm.json (not committed); delete it to fetch fresh data.
 Map data (c) OpenStreetMap contributors, ODbL.
 """
-import gzip, json, math, pathlib, random, time, urllib.parse, urllib.request
+import gzip, json, math, pathlib, random, struct, time, urllib.parse, urllib.request
 import bpy, bmesh
 from bmesh.types import BMFace
 from shapely.geometry import Point, Polygon, LineString
@@ -25,6 +26,7 @@ SIGNS = ["STAZIONE CENTRALE", "ALIMENTARI", "VIA ROMA 12", "BANCA", "VIA VERDI 3
          "VIA DANTE 7", "MINIMARKET", "UNIVERSITÀ", "VIA MILANO 21", "BENZINA"]
 DOOR_SPACING = 45.0                             # metres between two of the game's doors
 LAMP_REACH, LAMP_EVERY, LAMP_MAX = 280.0, 32.0, 80
+TREE_ROW_EVERY, PARK_TREE_EVERY = 8.0, 220.0     # metres along a row of trees; square metres of park per tree
 CHUNK = 300.0                                   # metres: the size of the pieces the city is cut into
 
 LAT0, LON0 = CENTRE
@@ -48,8 +50,9 @@ def download():
     for n, (s, w) in enumerate(((LAT0 - dy, LON0 - dx), (LAT0 - dy, LON0), (LAT0, LON0 - dx), (LAT0, LON0))):
         box = f"({s},{w},{s + dy},{w + dx})"
         query = "[out:json][timeout:170];(" + "".join(f"{k}{box};" for k in (
-            'way["building"]', 'relation["building"]', 'way["highway"]',
-            'way["leisure"="park"]', 'way["natural"="water"]')) + ");out geom;"
+            'way["building"]', 'relation["building"]', 'way["highway"]', 'node["natural"="tree"]', 'way["natural"="tree_row"]',
+            *(f'{kind}[{what}]' for kind in ("way", "relation") for what in (
+                '"leisure"~"^(park|garden)$"', '"landuse"~"^(grass|village_green|meadow)$"', '"natural"~"^(water|wood|scrub|grassland)$"')))) + ");out geom;"
         for attempt in range(1, 9):
             try:
                 request = urllib.request.Request("https://overpass-api.de/api/interpreter",
@@ -90,23 +93,29 @@ def height(t):
 
 
 def read(elements):
-    """Sorts OSM into buildings [(outers, inners, height)], roads [(points, kind)], flat areas and the station's outline."""
-    buildings, roads, areas, station = [], [], {"plaza": [], "park": [], "water": []}, []
+    """Sorts OSM into buildings [(outers, inners, height)], roads [(points, kind)], flat areas {kind: [(outers, inners)]},
+    the station's outline, trees [(x, y)] and the parks and woods that should be full of trees."""
+    buildings, roads, areas, station, trees, wooded = [], [], {"plaza": [], "park": [], "water": []}, [], [], []
     for e in elements:
         t = e.get("tags", {})
+        if e["type"] == "node":
+            trees += [p for p in proj([e]) if inside(p)]
+            continue
         if e["type"] == "relation":
             pts = []
             outers = rings([proj(m["geometry"]) for m in e["members"] if m.get("geometry") and m["role"] != "inner"])
             inners = rings([proj(m["geometry"]) for m in e["members"] if m.get("geometry") and m["role"] == "inner"])
         else:
             pts = proj(e["geometry"]); outers, inners = rings([pts]), []
+        here = bool(outers) and inside(outers[0][0])
         if "building" in t:
-            if outers and inside(outers[0][0]) and t.get("location") != "underground": buildings.append((outers, inners, height(t)))
+            if here and t.get("location") != "underground": buildings.append((outers, inners, height(t)))
             if t.get("name") == STATION: station += outers
         elif "highway" in t:
             k = t["highway"].replace("_link", "")
             if k in SKIP or t.get("tunnel") == "yes" or t.get("layer", "0").startswith("-"): continue
-            if outers and (t.get("area") == "yes" or k == "pedestrian"): areas["plaza"] += [r for r in outers if inside(r[0])]
+            if outers and (t.get("area") == "yes" or k == "pedestrian"):
+                if here: areas["plaza"].append((outers, inners))
             else:
                 run = []                                  # a road is cut where it leaves the circle
                 for p in pts + [None]:
@@ -114,9 +123,34 @@ def read(elements):
                     else:
                         if len(run) > 1: roads.append((run, k))
                         run = []
-        elif outers:
-            areas["water" if t.get("natural") == "water" else "park"] += [r for r in outers if inside(r[0])]
-    return buildings, roads, areas, station
+        elif t.get("natural") == "tree_row":
+            row = LineString(pts)
+            trees += [(q.x, q.y) for q in (row.interpolate(d * TREE_ROW_EVERY) for d in range(int(row.length // TREE_ROW_EVERY) + 1)) if inside((q.x, q.y))]
+        elif here:
+            areas["water" if t.get("natural") == "water" else "park"].append((outers, inners))
+            if t.get("leisure") == "park" or t.get("natural") == "wood": wooded += outers
+    return buildings, roads, areas, station, trees, wooded
+
+
+def plant(trees, wooded, buildings, roads):
+    """Fills parks and woods with trees (OSM maps few of them one by one), then drops every tree standing in a road or a house."""
+    for ring in wooded:
+        park = Polygon(ring).buffer(0)
+        x0, y0, x1, y1 = park.bounds
+        for _ in range(int(park.area / PARK_TREE_EVERY)):
+            spot = Point(random.uniform(x0, x1), random.uniform(y0, y1))
+            if park.contains(spot): trees.append((spot.x, spot.y))
+    ways = [(LineString(p), ROADW.get(k, 2.5) / 2 + 1.0) for p, k in roads if len(p) > 1]
+    way_tree = STRtree([w for w, _ in ways])
+    houses = [Polygon(o).buffer(0) for outers, _, _ in buildings for o in outers if len(o) > 2]
+    house_tree = STRtree(houses)
+    kept = []
+    for x, y in trees:
+        spot = Point(x, y)
+        if any(ways[i][0].distance(spot) < ways[i][1] for i in way_tree.query(spot.buffer(8))): continue
+        if any(houses[i].distance(spot) < 1.5 for i in house_tree.query(spot.buffer(1.5))): continue
+        kept.append((x, y))
+    return kept
 
 
 def place_doors(buildings, roads, station):
@@ -223,8 +257,8 @@ def build_model(buildings, roads, areas):
             nx, ny = -(by - ay) / L * w / 2, (bx - ax) / L * w / 2
             bm = chunk(layer, ax, ay)
             bm.faces.new([bm.verts.new(p) for p in ((ax - nx, ay - ny, z), (bx - nx, by - ny, z), (bx + nx, by + ny, z), (ax + nx, ay + ny, z))])
-    for layer, z in (("plaza", 0.02), ("park", 0.01), ("water", 0.01)):
-        for ring in areas[layer]: fill(chunk(layer, *ring[0]), [ring], z=z)
+    for layer, z in (("plaza", 0.02), ("park", 0.01), ("water", 0.015)):
+        for outers, inners in areas[layer]: fill(chunk(layer, *outers[0][0]), outers, inners, z=z)
 
     house = [mat(f"wall_{i}", c) for i, c in enumerate(WALLS)] + [mat("roof", (0.45, 0.20, 0.13))]
     flat = {"roads": mat("asphalt", (0.035, 0.035, 0.04), 0.6), "paths": mat("path", (0.30, 0.29, 0.27)),
@@ -241,8 +275,11 @@ def build_model(buildings, roads, areas):
     glb.unlink()
 
 
-buildings, roads, areas, station = read(download())
-print(f"{len(buildings)} buildings, {len(roads)} roads; placing doors", flush=True)
+buildings, roads, areas, station, trees, wooded = read(download())
+print(f"{len(buildings)} buildings, {len(roads)} roads, {len(areas['park'])} green areas; planting trees", flush=True)
+trees = plant(trees, wooded, buildings, roads)
+(HERE / "trees.bin").write_bytes(struct.pack(f"<{len(trees) * 2}f", *(v for x, y in trees for v in (x, -y))))   # Godot: z runs south
+print(f"{len(trees)} trees; placing doors", flush=True)
 places, lamps = place_doors(buildings, roads, station)
 print("doors placed; building the model", flush=True)
 (HERE / "places.json").write_text(json.dumps({

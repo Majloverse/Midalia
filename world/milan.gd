@@ -7,6 +7,8 @@ class_name Milan
 
 const MODEL := "res://world/milan/milan.glb.gz"
 const INFO := "res://world/milan/places.json"
+const TREES := "res://world/milan/trees.bin"
+const CHUNK := 300.0  # metres: trees are grouped like the city, so only those near the camera are drawn
 
 ## House walls: flat colour with rows of windows drawn on, some of them lit at night.
 const WALL_SHADER := "
@@ -64,6 +66,8 @@ static func build(parent: Node3D) -> Dictionary:
 					walls[original.resource_name] = material
 				houses.set_surface_override_material(surface, walls[original.resource_name])
 
+	_plant(parent)
+
 	# The ground to stand on, and invisible walls where the map ends.
 	var radius: float = info.radius
 	Build.blocker(parent, Vector3(0, -0.5, 0), Vector3(radius * 2, 1, radius * 2))
@@ -79,6 +83,52 @@ static func build(parent: Node3D) -> Dictionary:
 		body.position = Vector3(cos(i * TAU / walls_round), 0, sin(i * TAU / walls_round)) * (radius - 2) + Vector3(0, 20, 0)
 		parent.add_child(body)
 	return {"places": info.places, "lamps": info.lamps, "walls": walls.values()}
+
+
+## Stands a tree on every spot in trees.bin (x, z, x, z, ...). Each chunk's trees are one MultiMesh.
+## ponytail: trees have no collision, you walk through the trunks; add a capsule per tree near the player if that matters.
+static func _plant(parent: Node3D) -> void:
+	var spots := FileAccess.get_file_as_bytes(TREES).to_float32_array()
+	var chunks := {}
+	for i in range(0, spots.size(), 2):
+		chunks.get_or_add(Vector2i(floori(spots[i] / CHUNK), floori(spots[i + 1] / CHUNK)), []).append(Vector3(spots[i], 0, spots[i + 1]))
+	var tree := _tree()
+	for key in chunks:
+		var grove := MultiMesh.new()
+		grove.transform_format = MultiMesh.TRANSFORM_3D
+		grove.mesh = tree
+		grove.instance_count = chunks[key].size()
+		for i in grove.instance_count:
+			var at: Vector3 = chunks[key][i]
+			var size := 0.7 + 0.6 * fposmod(at.x * 12.9898 + at.z * 78.233, 1.0)   # the same tree is the same size every time
+			grove.set_instance_transform(i, Transform3D(Basis(Vector3.UP, at.x + at.z).scaled(Vector3.ONE * size), at))
+		var instance := MultiMeshInstance3D.new()
+		instance.multimesh = grove
+		parent.add_child(instance)
+
+
+## One simple tree, about 7 m tall: a trunk and a round crown.
+static func _tree() -> ArrayMesh:
+	var trunk := CylinderMesh.new()
+	trunk.top_radius = 0.15
+	trunk.bottom_radius = 0.22
+	trunk.height = 2.8
+	trunk.radial_segments = 5
+	trunk.rings = 1
+	var crown := SphereMesh.new()
+	crown.radius = 2.3
+	crown.height = 4.8
+	crown.radial_segments = 7
+	crown.rings = 4
+	var mesh := ArrayMesh.new()
+	for part in [[trunk, 1.4, Color(0.33, 0.24, 0.16)], [crown, 4.6, Color(0.17, 0.38, 0.15)]]:
+		var tool := SurfaceTool.new()
+		tool.append_from(part[0], 0, Transform3D(Basis(), Vector3(0, part[1], 0)))
+		var material := StandardMaterial3D.new()
+		material.albedo_color = part[2]
+		tool.set_material(material)
+		tool.commit(mesh)
+	return mesh
 
 
 ## 0 by day, 1 at night: how brightly the lit windows shine.
