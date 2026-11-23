@@ -16,5 +16,6 @@ models/*.gguf
 # The Linux one is not; get it from the NobodyWho releases page.
 
 # OpenStreetMap download kept by world/milan/build_map.py
-world/milan/osm.json
+world/milan/osm.json.gz
+world/milan/osm_tiles/
 addons/nobodywho/*.so

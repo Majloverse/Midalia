@@ -6,7 +6,8 @@ Writes, next to this file:
     milan.glb.gz  the city: extruded buildings, roads, paths, squares, parks, water, ground
     places.json   where each of the game's doors sits on a real building, and the street lamps
     trees.bin     where the trees stand: x, z, x, z, ... as 32-bit floats
-The OpenStreetMap download is kept as osm.json (not committed); delete it to fetch fresh data.
+Everything OpenStreetMap has for the area is downloaded once and kept as osm.json.gz (not committed),
+so a new kind of thing on the map needs no new download; delete the file to fetch fresh data.
 Map data (c) OpenStreetMap contributors, ODbL.
 """
 import gzip, json, math, pathlib, random, struct, time, urllib.parse, urllib.request
@@ -27,6 +28,7 @@ SIGNS = ["STAZIONE CENTRALE", "ALIMENTARI", "VIA ROMA 12", "BANCA", "VIA VERDI 3
 DOOR_SPACING = 45.0                             # metres between two of the game's doors
 LAMP_REACH, LAMP_EVERY, LAMP_MAX = 280.0, 32.0, 80
 TREE_ROW_EVERY, PARK_TREE_EVERY = 8.0, 220.0     # metres along a row of trees; square metres of park per tree
+TILES = 4                                       # the download is cut into TILES x TILES pieces
 CHUNK = 300.0                                   # metres: the size of the pieces the city is cut into
 
 LAT0, LON0 = CENTRE
@@ -42,18 +44,25 @@ WALLS = [(0.80, 0.66, 0.42), (0.86, 0.80, 0.66), (0.72, 0.50, 0.36), (0.62, 0.60
 
 
 def download():
-    """Fetches the circle's bounding box in four quarters: one big request is often turned away."""
-    cache = HERE / "osm.json"
-    if cache.exists(): return json.loads(cache.read_text())["elements"]
-    dy, dx = RADIUS / KY, RADIUS / KX
+    """Everything OpenStreetMap has in the circle's bounding box: every way, every node with tags, and the
+    relations that are shapes. (Not bus and tram routes: they are lines across the whole city, not things on the map.)
+    Fetched in small tiles, one at a time, because the server turns away big or parallel requests.
+    Each tile is kept in osm_tiles/ as it arrives, so a download that is cut short carries on where it stopped."""
+    cache, tiles = HERE / "osm.json.gz", HERE / "osm_tiles"
+    if cache.exists(): return json.loads(gzip.decompress(cache.read_bytes()))
+    tiles.mkdir(exist_ok=True)
+    dy, dx = 2 * RADIUS / KY / TILES, 2 * RADIUS / KX / TILES
     found = {}
-    for n, (s, w) in enumerate(((LAT0 - dy, LON0 - dx), (LAT0 - dy, LON0), (LAT0, LON0 - dx), (LAT0, LON0))):
+    for n in range(TILES * TILES):
+        s, w = LAT0 - RADIUS / KY + (n // TILES) * dy, LON0 - RADIUS / KX + (n % TILES) * dx
+        kept = tiles / f"{n}.json"
+        if kept.exists():
+            for e in json.loads(kept.read_text()): found[(e["type"], e["id"])] = e
+            continue
         box = f"({s},{w},{s + dy},{w + dx})"
-        query = "[out:json][timeout:170];(" + "".join(f"{k}{box};" for k in (
-            'way["building"]', 'relation["building"]', 'way["highway"]', 'node["natural"="tree"]', 'way["natural"="tree_row"]',
-            *(f'{kind}[{what}]' for kind in ("way", "relation") for what in (
-                '"leisure"~"^(park|garden)$"', '"landuse"~"^(grass|village_green|meadow)$"', '"natural"~"^(water|wood|scrub|grassland)$"')))) + ");out geom;"
-        for attempt in range(1, 9):
+        query = (f"[out:json][timeout:170][maxsize:1073741824];(way{box};node{box}(if:count_tags()>0);"
+                 f'relation["type"="multipolygon"]{box};relation["building"]{box};);out geom;')
+        for attempt in range(1, 13):
             try:
                 request = urllib.request.Request("https://overpass-api.de/api/interpreter",
                     urllib.parse.urlencode({"data": query}).encode(), {"User-Agent": "midalia-map-build/1"})
@@ -61,13 +70,17 @@ def download():
                 assert "remark" not in data, data["remark"]
                 break
             except Exception as error:
-                print(f"quarter {n + 1}/4 attempt {attempt} failed: {str(error)[:80]}", flush=True)
-                time.sleep(30)
+                print(f"tile {n + 1}/{TILES * TILES} attempt {attempt} failed: {str(error)[:80]}", flush=True)
+                time.sleep(min(15 * attempt, 90))
         else: raise SystemExit("FAILED: OpenStreetMap download")
+        kept.write_text(json.dumps(data["elements"]))
         for e in data["elements"]: found[(e["type"], e["id"])] = e
-        print(f"quarter {n + 1}/4 downloaded, {len(found)} things so far", flush=True)
-    cache.write_text(json.dumps({"elements": list(found.values())}))
-    return list(found.values())
+        print(f"tile {n + 1}/{TILES * TILES} downloaded, {len(found)} things so far", flush=True)
+    elements = [found[key] for key in sorted(found)]      # always in the same order, so a rebuild gives the same city
+    cache.write_bytes(gzip.compress(json.dumps(elements).encode(), 6))
+    for kept in tiles.iterdir(): kept.unlink()
+    tiles.rmdir()
+    return elements
 
 
 def rings(parts):
@@ -99,7 +112,7 @@ def read(elements):
     for e in elements:
         t = e.get("tags", {})
         if e["type"] == "node":
-            trees += [p for p in proj([e]) if inside(p)]
+            if t.get("natural") == "tree": trees += [p for p in proj([e]) if inside(p)]
             continue
         if e["type"] == "relation":
             pts = []
@@ -126,8 +139,11 @@ def read(elements):
         elif t.get("natural") == "tree_row":
             row = LineString(pts)
             trees += [(q.x, q.y) for q in (row.interpolate(d * TREE_ROW_EVERY) for d in range(int(row.length // TREE_ROW_EVERY) + 1)) if inside((q.x, q.y))]
-        elif here:
-            areas["water" if t.get("natural") == "water" else "park"].append((outers, inners))
+        elif here and t.get("natural") == "water":
+            areas["water"].append((outers, inners))
+        elif here and (t.get("leisure") in ("park", "garden") or t.get("landuse") in ("grass", "village_green", "meadow")
+                       or t.get("natural") in ("wood", "scrub", "grassland")):
+            areas["park"].append((outers, inners))
             if t.get("leisure") == "park" or t.get("natural") == "wood": wooded += outers
     return buildings, roads, areas, station, trees, wooded
 
