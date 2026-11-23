@@ -11,6 +11,8 @@ var _pitch := -0.25
 var _pivot: Node3D
 var _body: Figure
 var _nearby: Array[Area3D] = []
+## What the player is looking straight at and could click, or null.
+var _looked: Area3D
 var _lying := false
 var _arm: SpringArm3D
 
@@ -65,6 +67,7 @@ func _busy() -> bool:
 func teleport(to: Vector3, yaw: float) -> void:
 	position = to
 	_nearby.clear()
+	_looked = null
 	prompt_changed.emit("")
 	velocity = Vector3.ZERO
 	_yaw = yaw
@@ -74,6 +77,9 @@ func teleport(to: Vector3, yaw: float) -> void:
 ## How far behind the player the camera sits. Rooms need it closer than streets.
 func set_camera_distance(distance: float) -> void:
 	_arm.spring_length = distance
+	# Indoors the camera sits over the right shoulder, so your own back isn't
+	# covering the thing in the middle of the screen that you're about to pick up.
+	_arm.position.x = 0.45 if distance < Settings.CAMERA_DISTANCE else 0.0
 
 
 ## Which way the body is facing.
@@ -104,7 +110,10 @@ func stand_up() -> void:
 
 ## Call after something a nearby door says has changed.
 func refresh_prompt() -> void:
-	prompt_changed.emit("" if _nearby.is_empty() else "E  " + str(_nearby[-1].get_meta("prompt")))
+	if _looked != null:
+		prompt_changed.emit("Click  " + str(_looked.get_meta("prompt")))
+	else:
+		prompt_changed.emit("" if _nearby.is_empty() else "E  " + str(_nearby[-1].get_meta("prompt")))
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -116,13 +125,41 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed("ui_cancel"):
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	elif event is InputEventMouseButton and event.pressed:
-		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-	elif event.is_action_pressed("interact") and not _nearby.is_empty():
-		interacted.emit(_nearby[-1])
+		if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		elif event.button_index == MOUSE_BUTTON_LEFT and _looked != null:
+			interacted.emit(_looked)
+	elif event.is_action_pressed("interact"):
+		# What you're looking at wins over the zone you're standing in.
+		if _looked != null:
+			interacted.emit(_looked)
+		elif not _nearby.is_empty():
+			interacted.emit(_nearby[-1])
+
+
+## Finds the thing in the middle of the screen, if it is within arm's reach.
+func _look() -> void:
+	var seen: Area3D = null
+	var camera := get_viewport().get_camera_3d()
+	if camera != null and not _busy() and not _lying:
+		var head := global_position + Vector3(0, 1.3, 0)
+		var forward := -camera.global_basis.z
+		# Start level with the player, so nothing between the camera and their back gets picked.
+		var from := camera.global_position + forward * maxf(0.0, (head - camera.global_position).dot(forward) - 0.2)
+		var query := PhysicsRayQueryParameters3D.create(from, from + forward * Settings.REACH, 2)
+		query.collide_with_areas = true
+		query.collide_with_bodies = false
+		var hit := get_world_3d().direct_space_state.intersect_ray(query)
+		if not hit.is_empty() and hit.collider is Area3D and hit.collider.has_meta("prompt"):
+			seen = hit.collider
+	if seen != _looked:
+		_looked = seen
+		refresh_prompt()
 
 
 func _physics_process(delta: float) -> void:
 	_pivot.rotation = Vector3(_pitch, _yaw, 0)
+	_look()
 
 	if _lying:
 		return

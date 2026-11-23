@@ -19,6 +19,16 @@ func _ready() -> void:
 	help.position = Vector2(20, -40)
 	help.text = "WASD walk   Shift run   Space jump   Mouse look   E use   Tab phone   Esc free the mouse"
 	help.modulate.a = 0.7
+	# A small dot in the middle of the screen: what it rests on is what a click picks up.
+	var dot := ColorRect.new()
+	dot.color = Color(1, 1, 1, 0.7)
+	dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(dot)
+	dot.set_anchors_preset(Control.PRESET_CENTER)
+	dot.offset_left = -2
+	dot.offset_right = 2
+	dot.offset_top = -2
+	dot.offset_bottom = 2
 	Game.minute_passed.connect(_refresh)
 	_refresh()
 
@@ -45,6 +55,8 @@ func _refresh() -> void:
 	_stats.text = "Day %d   %s\nWellbeing %d%%\nCash %d euro" % [Game.day, Game.clock_text(), Game.wellbeing, Game.cash]
 	if not Game.ate_today:
 		_stats.text += "\nNot eaten today"
+	if not Game.cart.is_empty():
+		_stats.text += "\nBasket: %d things, %d euro" % [Game.cart.size(), Game.cart_total()]
 
 
 func _label(preset: Control.LayoutPreset, size: int) -> Label:

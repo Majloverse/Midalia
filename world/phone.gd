@@ -19,6 +19,7 @@ var _busy := false
 var _chat_box: VBoxContainer
 var _chat_scroll: ScrollContainer
 var _message_box: LineEdit
+var _note := ""  # what happened the last time you ate something
 
 
 func _ready() -> void:
@@ -90,6 +91,16 @@ func toggle() -> void:
 		get_viewport().gui_release_focus()
 
 
+## Opens the phone straight onto one of its screens.
+func open_at(screen: String) -> void:
+	_screen = screen
+	_note = ""
+	if Game.phone_open:
+		_show(screen)
+	else:
+		toggle()
+
+
 func _go_back() -> void:
 	_show("chats" if _screen == "chat" else "home")
 
@@ -107,6 +118,7 @@ func _show(screen: String) -> void:
 		"bank": _bank()
 		"university": _university()
 		"notebook": _notebook()
+		"food": _food()
 
 
 # --- Home ---
@@ -119,10 +131,11 @@ func _home() -> void:
 	grid.add_theme_constant_override("v_separation", 12)
 	_content.add_child(grid)
 	for app in [["Chats", "chats", Color(0.15, 0.5, 0.3)], ["Bank", "bank", Color(0.2, 0.35, 0.6)],
-			["University", "university", Color(0.55, 0.25, 0.25)], ["Notebook", "notebook", Color(0.55, 0.45, 0.2)]]:
+			["University", "university", Color(0.55, 0.25, 0.25)], ["Notebook", "notebook", Color(0.55, 0.45, 0.2)],
+			["Food", "food", Color(0.6, 0.35, 0.15)]]:
 		var button := Button.new()
 		button.text = app[0]
-		button.custom_minimum_size = Vector2(170, 110)
+		button.custom_minimum_size = Vector2(170, 84)
 		button.add_theme_font_size_override("font_size", 20)
 		button.add_theme_stylebox_override("normal", _style(app[2], 18, 8))
 		button.add_theme_stylebox_override("hover", _style(app[2].lightened(0.15), 18, 8))
@@ -242,10 +255,12 @@ func _university() -> void:
 	if Game.tuition_owed <= 0:
 		_text("Tuition paid", 24)
 		_text("You're cleared to sit your exams.")
+		_text("Hours studied: %.1f" % Game.study_hours)
 		return
 	_text("Tuition due", 16)
 	_text("%d euro" % Game.tuition_owed, 34)
 	_text("Exams are on days 10, 20 and 30. You can't sit them until this is paid.")
+	_text("Hours studied: %.1f" % Game.study_hours)
 	var pay := Button.new()
 	pay.text = "Pay now"
 	pay.custom_minimum_size.y = 48
@@ -268,6 +283,45 @@ func _notebook() -> void:
 		_text("Nothing yet. Things people tell you get written down here.")
 	for note in Game.notebook:
 		_text("•  " + note)
+
+
+# --- Food ---
+
+## What you've bought, with a button to eat each thing. Not really an app: it's your bag, or your kitchen shelf.
+func _food() -> void:
+	var at_home: bool = Game.home != "" and Game.inside == Game.home
+	_title.text = "Your food"
+	if Game.food.is_empty():
+		_text("You have no food. Shops sell it: the supermarket is cheapest, the petrol station never closes.")
+		return
+	_text("In your kitchen. You can cook here." if at_home else ("On your shelf at home and in your bag." if Game.home != "" else "In your bag. Cooking needs a kitchen of your own."), 14)
+	_text("Meal today: %s    Snacks: %d of %d" % ["yes" if Game.ate_today else "not yet", Game.snacks_today, Settings.SNACKS_PER_DAY], 14)
+	if _note != "":
+		_text(_note, 14)
+		_content.get_child(_content.get_child_count() - 1).modulate = Color(1.0, 0.85, 0.5)
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_content.add_child(scroll)
+	var list := VBoxContainer.new()
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(list)
+	var counts := {}
+	for id in Game.food:
+		counts[id] = counts.get(id, 0) + 1
+	for id in counts:
+		var item: Dictionary = Food.ITEMS[id]
+		var button := Button.new()
+		var verb := "Cook" if item.kind == "cook" else "Eat"
+		button.text = "  %s: %s x%d   (+%d, %s)" % [verb, item.name, counts[id], item.gain, "snack" if item.kind == "snack" else "meal"]
+		button.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		button.custom_minimum_size.y = 40
+		button.add_theme_stylebox_override("normal", _style(BAR, 10, 6))
+		button.disabled = item.kind == "cook" and not at_home
+		button.pressed.connect(func():
+			_note = Game.eat_item(id)
+			_show("food"))
+		list.add_child(button)
 
 
 # --- Helpers ---

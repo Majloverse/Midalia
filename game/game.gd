@@ -7,6 +7,8 @@ signal night_ended          # the clock reached 5:00
 signal notice(text: String)  # something the player should see on screen
 signal shelter_changed
 signal home_lost(sign: String)  # you no longer live in the flat with this sign
+signal food_changed
+signal goods_changed
 
 const FLATS := ["VIA VERDI 3", "VIA DANTE 7", "VIA MILANO 21"]
 ## What a two-faced flatmate tells people about you.
@@ -56,6 +58,16 @@ var kick_at: int
 ## Strangers with a room advertised on the university notice board.
 var landlords: Array[Person]
 var ate_today: bool
+var snacks_today: int
+## Food you own (ids from Food.ITEMS). It sits in your kitchen when you have a home, in your bag when you don't.
+var food: Array[String]
+## What you've picked up in a shop and not paid for yet: [{"item": id, "price": euro}]
+var cart: Array
+## Marketplace goods you own (ids from Settings.GOODS).
+var owned: Array[String]
+var study_hours: float
+## The sign of the building the player is in, or "" on the street. Kept up to date by the world.
+var inside := ""
 
 var phone_open := false
 ## True while a full-screen moment (talking, a wheel, game over) has the player's attention.
@@ -112,6 +124,11 @@ func reset() -> void:
 	rent_raised = false
 	kick_at = -1
 	ate_today = false
+	snacks_today = 0
+	food = []
+	cart = []
+	owned = []
+	study_hours = 0.0
 	phone_open = false
 	modal_open = false
 	clock_running = true
@@ -224,6 +241,7 @@ func save_game(inside: String, position: Vector3) -> void:
 		"home": home, "flatmate": people.find(flatmate), "rent": rent, "rent_due_day": rent_due_day,
 		"nights_home": nights_home, "rent_raised": rent_raised, "kick_at": kick_at, "ate_today": ate_today,
 		"landlords": landlords.map(func(p): return people.find(p)),
+		"food": food, "owned": owned, "study_hours": study_hours, "snacks_today": snacks_today,
 		"wellbeing": wellbeing, "cash": cash, "street_cred": street_cred, "day": day, "minutes": minutes,
 		"bank_account": bank_account, "bank_balance": bank_balance, "tuition_owed": tuition_owed,
 		"notebook": notebook, "mean_to": mean_to, "night_survived": night_survived, "survived_shown": survived_shown,
@@ -271,6 +289,10 @@ func load_game() -> bool:
 		rent_raised = data.rent_raised
 		kick_at = int(data.kick_at)
 		ate_today = data.ate_today
+	food.assign(data.get("food", []))
+	owned.assign(data.get("owned", []))
+	study_hours = data.get("study_hours", 0.0)
+	snacks_today = int(data.get("snacks_today", 0))
 	saved_inside = data.inside
 	saved_position = Vector3(data.position[0], data.position[1], data.position[2])
 	loaded_from_save = true
@@ -394,6 +416,86 @@ func eat(price: int, gain: int, what: String) -> String:
 	return "%s -%d euro. Wellbeing +%d." % [what, price, gain]
 
 
+func cart_total() -> int:
+	var total := 0
+	for line in cart:
+		total += line.price
+	return total
+
+
+## Pays for the basket at the till. Returns false if you can't afford it.
+func check_out() -> bool:
+	if not pay(cart_total()):
+		return false
+	for line in cart:
+		food.append(line.item)
+	cart = []
+	food_changed.emit()
+	return true
+
+
+## Eats one thing you own. Cooking needs your own kitchen. Returns what to tell the player.
+func eat_item(id: String) -> String:
+	var item: Dictionary = Food.ITEMS[id]
+	if not food.has(id):
+		return "You don't have that."
+	if item.kind == "cook" and (home == "" or inside != home):
+		return "%s needs cooking, and you need your own kitchen for that." % item.name
+	if item.kind == "snack":
+		if snacks_today >= Settings.SNACKS_PER_DAY:
+			return "Enough snacks for one day. You feel a bit sick."
+		snacks_today += 1
+	else:
+		if ate_today:
+			return "You've already had a proper meal today. Keep it for tomorrow."
+		ate_today = true
+	food.erase(id)
+	wellbeing = clampi(wellbeing + item.gain, 0, 100)
+	food_changed.emit()
+	var how := "You cook and eat the %s." if item.kind == "cook" else "You have the %s."
+	return (how % item.name.to_lower()) + " Wellbeing +%d." % item.gain
+
+
+# --- Your room ---
+
+func good(id: String) -> Dictionary:
+	for entry in Settings.GOODS:
+		if entry.id == id:
+			return entry
+	return {}
+
+
+## Buys something from the online marketplace. Returns what to tell the player.
+func buy_good(id: String) -> String:
+	var entry := good(id)
+	if owned.has(id):
+		return "You already have that."
+	if not bank_account:
+		return "Online payments need an Italian bank account."
+	if bank_balance < entry.price:
+		return "Not enough in your account (%d euro)." % bank_balance
+	bank_balance -= entry.price
+	owned.append(id)
+	var text := "Ordered. A courier with no helmet drops it off within the minute."
+	if id == "plant":
+		wellbeing = clampi(wellbeing + Settings.PLANT_WELLBEING, 0, 100)
+		text += " Wellbeing +%d." % Settings.PLANT_WELLBEING
+	elif id == "poster":
+		wellbeing = clampi(wellbeing + Settings.POSTER_WELLBEING, 0, 100)
+		text += " Wellbeing +%d." % Settings.POSTER_WELLBEING
+	goods_changed.emit()
+	return text
+
+
+## Hours with the books. The clock is moved separately. Returns what to tell the player.
+func study(hours: int) -> String:
+	var counted := hours * (Settings.TEXTBOOK_STUDY_BONUS if owned.has("textbook") else 1.0)
+	study_hours += counted
+	if owned.has("textbook"):
+		return "You studied for %d hours. With the textbook that counts as %.1f. Hours studied: %.1f." % [hours, counted, study_hours]
+	return "You studied for %d hours. Hours studied: %.1f." % [hours, study_hours]
+
+
 # --- A room of your own ---
 
 ## Everyone you know of who would rent you a room in this flat.
@@ -440,8 +542,9 @@ func move_in(person: Person) -> bool:
 ## A night in your own bed. The clock is moved separately, by the sleeping animation.
 func sleep_in_bed() -> String:
 	night_survived = true
-	wellbeing = clampi(wellbeing + Settings.BED_WELLBEING, 0, 100)
-	return "You slept in your own bed. Wellbeing +%d." % Settings.BED_WELLBEING
+	var gain: int = Settings.BED_WELLBEING + (Settings.DUVET_WELLBEING if owned.has("duvet") else 0)
+	wellbeing = clampi(wellbeing + gain, 0, 100)
+	return "You slept in your own bed. Wellbeing +%d." % gain
 
 
 ## Everything that catches up with you in the morning: hunger, the rent, and
@@ -452,6 +555,7 @@ func wake_up(slept_at_home: bool) -> String:
 		wellbeing = clampi(wellbeing + Settings.HUNGRY_WELLBEING, 0, 100)
 		text += " You went a whole day without eating. Wellbeing %d." % Settings.HUNGRY_WELLBEING
 	ate_today = false
+	snacks_today = 0
 	if home == "":
 		return text
 	if slept_at_home:
@@ -478,13 +582,22 @@ func _flatmate_night() -> String:
 	var roll := rng.randf()
 	roll -= Settings.FLATMATE_STEAL_CHANCE
 	if roll < 0.0:
-		if cash <= 0:
+		if cash <= 0 or owned.has("lock"):
 			return ""
 		var stolen := maxi(1, int(cash * rng.randf_range(Settings.STEAL_SHARE_MIN, Settings.STEAL_SHARE_MAX)))
 		cash -= stolen
 		flatmate.remember("You took some of their money while they slept. They don't know it was you.")
 		add_note("%d euro went missing from my room at %s." % [stolen, home.capitalize()])
 		return " %d euro is missing from your room." % stolen
+	roll -= Settings.FLATMATE_EAT_CHANCE
+	if roll < 0.0:
+		if food.is_empty() or owned.has("fridge"):
+			return ""
+		var eaten: String = food.pop_at(rng.randi() % food.size())
+		flatmate.remember("You ate their food from the kitchen and said nothing.")
+		add_note("My %s vanished from the kitchen at %s." % [Food.name_of(eaten).to_lower(), home.capitalize()])
+		food_changed.emit()
+		return " Your %s is gone from the kitchen. Nobody knows anything." % Food.name_of(eaten).to_lower()
 	roll -= Settings.FLATMATE_GOSSIP_CHANCE
 	if roll < 0.0:
 		var secret: String = SECRETS[rng.randi() % SECRETS.size()]

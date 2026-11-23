@@ -10,7 +10,7 @@ const DOOR := Color(0.25, 0.15, 0.1)
 
 
 ## Floor, ceiling, four walls and the door out. Returns the room node.
-static func shell(parent: Node3D, origin: Vector3, width: float, height: float, depth: float, wall: Color, floor: Color, leave_prompt: String) -> Node3D:
+static func shell(parent: Node3D, origin: Vector3, width: float, height: float, depth: float, wall: Color, floor: Color, leave_prompt: String, leave_action: String = "leave") -> Node3D:
 	var room := Node3D.new()
 	room.position = origin
 	parent.add_child(room)
@@ -22,7 +22,7 @@ static func shell(parent: Node3D, origin: Vector3, width: float, height: float, 
 	Build.box(room, Vector3(width / 2 + 0.25, height / 2, 0), Vector3(0.5, height + 0.5, depth), wall, true)
 	Build.box(room, Vector3(0, 1.1, depth / 2 - 0.04), Vector3(1.3, 2.2, 0.08), DOOR)
 	Build.box(room, Vector3(0.45, 1.05, depth / 2 - 0.1), Vector3(0.08, 0.08, 0.08), Color(0.8, 0.7, 0.3))  # handle
-	Build.trigger(room, Vector3(0, 1.2, depth / 2 - 0.8), Vector3(2.4, 2.4, 1.4), leave_prompt, "leave")
+	Build.trigger(room, Vector3(0, 1.2, depth / 2 - 0.8), Vector3(2.4, 2.4, 1.4), leave_prompt, leave_action)
 	return room
 
 
@@ -98,12 +98,97 @@ static func flat(parent: Node3D, origin: Vector3, wall: Color, accent: Color) ->
 	# Where the sleeper's feet go and which way their head points.
 	couch.set_meta("lie_at", origin + Vector3(-4.2, 0.6, -0.1))
 	couch.set_meta("lie_yaw", PI)
-	# The bed and the kitchen are for whoever lives here.
-	var bed := Build.trigger(room, Vector3(3.3, 1.0, -2.6), Vector3(2.8, 2.0, 2.6), "Go to bed", "bed")
-	bed.set_meta("lie_at", origin + Vector3(3.9, 0.77, -2.0))
+	Build.trigger(room, Vector3(-0.6, 1.0, -2.8), Vector3(3.2, 2.0, 1.0), "Cook or eat something", "cook")
+
+	# Their food, lying around the way food does in a student flat.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(accent)
+	var theirs: Array = Food.ITEMS.keys()
+	for spot in [Vector3(-1.9, 0.945, -3.6), Vector3(-0.85, 0.945, -3.55), Vector3(0.7, 0.945, -3.75), Vector3(1.45, 1.8, -3.6),
+			Vector3(1.25, 1.8, -3.5), Vector3(2.9, 0.75, 1.4), Vector3(2.2, 0.75, 1.85), Vector3(-2.9, 0.4, -1.05)]:
+		var theirs_item := Food.model(theirs[rng.randi() % theirs.size()])
+		theirs_item.position = spot
+		theirs_item.rotation.y = rng.randf_range(-0.6, 0.6)
+		room.add_child(theirs_item)
+	Build.box(room, Vector3(3.0, 0.78, 1.6), Vector3(0.3, 0.06, 0.3), Color(0.85, 0.85, 0.8))         # fruit bowl
+	for fruit in [["apple", Vector3(2.95, 0.81, 1.55)], ["orange", Vector3(3.06, 0.81, 1.62)], ["banana", Vector3(3.0, 0.87, 1.6)]]:
+		var piece := Food.model(fruit[0])
+		piece.position = fruit[1]
+		room.add_child(piece)
+	# A shelf over the worktop for the lodger's food. The game puts what you own on it.
+	Build.box(room, Vector3(-0.6, 1.42, -3.8), Vector3(3.2, 0.04, 0.32), WOOD)
+	Build.sign(room, Vector3(-0.6, 1.36, -3.63), "LODGER", 22, 0.0, Color(0.95, 0.9, 0.8))
+
+	# The door to the spare room, in the right-hand wall.
+	Build.box(room, Vector3(4.96, 1.1, -0.3), Vector3(0.08, 2.2, 1.0), DOOR)
+	Build.box(room, Vector3(4.9, 1.05, 0.05), Vector3(0.08, 0.08, 0.08), Color(0.8, 0.7, 0.3))
+	Build.trigger(room, Vector3(4.2, 1.2, -0.3), Vector3(1.4, 2.4, 1.4), "The spare room", "room_door")
+	var spare := _spare_room(parent, origin + Vector3(30, 0, 0), wall, accent)
+	spare.merge({"room": room, "entry": origin + Vector3(0, 0.1, 1.4), "host_spot": Vector3(0.8, 0, -0.6),
+		"food_shelf": Vector3(-2.0, 1.44, -3.8), "room_door": origin + Vector3(3.9, 0.1, -0.3)})
+	return spare
+
+
+## The room you rent: your bed, a desk to study at, a computer. Small, and yours.
+## Things bought online appear here; they are built hidden and shown once owned.
+static func _spare_room(parent: Node3D, origin: Vector3, wall: Color, accent: Color) -> Dictionary:
+	var room := shell(parent, origin, 6, 3.0, 5, wall.lerp(Color.WHITE, 0.3), Color(0.55, 0.45, 0.34), "Back to the flat", "room_exit")
+	Build.light(room, Vector3(0, 2.6, 0), Color(1.0, 0.9, 0.75), 2.0, 8.0)
+	Build.glow(Build.box(room, Vector3(0, 2.92, 0), Vector3(0.4, 0.12, 0.4), Color(1, 0.95, 0.8)), Color(1.0, 0.9, 0.7), 2.0)
+
+	# Your bed, along the left wall.
+	Build.box(room, Vector3(-2.2, 0.2, -1.2), Vector3(1.4, 0.4, 2.1), DARK_WOOD, true)
+	Build.box(room, Vector3(-2.2, 0.47, -1.2), Vector3(1.3, 0.16, 2.0), Color(0.92, 0.92, 0.88))
+	Build.box(room, Vector3(-2.2, 0.57, -0.8), Vector3(1.32, 0.08, 1.25), Color(0.6, 0.62, 0.66))        # thin grey blanket
+	Build.box(room, Vector3(-2.2, 0.6, -1.95), Vector3(0.8, 0.14, 0.4), Color.WHITE)
+	Build.box(room, Vector3(-2.2, 0.6, -2.25), Vector3(1.4, 1.2, 0.1), DARK_WOOD)
+	var bed := Build.trigger(room, Vector3(-1.8, 1.0, -1.0), Vector3(2.2, 2.0, 2.6), "Go to bed", "bed")
+	bed.set_meta("lie_at", origin + Vector3(-2.2, 0.77, -0.3))
 	bed.set_meta("lie_yaw", PI)
-	Build.trigger(room, Vector3(-0.6, 1.0, -2.8), Vector3(3.2, 2.0, 1.0), "Cook something", "cook")
-	return {"room": room, "entry": origin + Vector3(0, 0.1, 1.4), "host_spot": Vector3(0.8, 0, -0.6)}
+
+	# A long desk on the back wall: books on the left, the computer on the right.
+	Build.box(room, Vector3(1.3, 0.72, -2.1), Vector3(2.8, 0.06, 0.7), WOOD, true)
+	for leg in [Vector3(0.0, 0.35, -2.35), Vector3(2.6, 0.35, -2.35), Vector3(0.0, 0.35, -1.85), Vector3(2.6, 0.35, -1.85)]:
+		Build.box(room, leg, Vector3(0.07, 0.7, 0.07), DARK_WOOD)
+	Build.box(room, Vector3(0.5, 0.78, -2.1), Vector3(0.4, 0.04, 0.3), Color.WHITE)                         # notes
+	Build.box(room, Vector3(0.15, 0.8, -2.25), Vector3(0.22, 0.1, 0.3), Color(0.25, 0.4, 0.65))             # a library book
+	Build.box(room, Vector3(2.0, 0.85, -2.35), Vector3(0.08, 0.2, 0.08), Color(0.15, 0.15, 0.17))           # monitor stand
+	Build.box(room, Vector3(2.0, 1.15, -2.35), Vector3(0.75, 0.46, 0.05), Color(0.1, 0.1, 0.12))
+	Build.glow(Build.box(room, Vector3(2.0, 1.15, -2.32), Vector3(0.69, 0.4, 0.01), Color(0.2, 0.3, 0.5)), Color(0.45, 0.65, 1.0), 0.9)
+	Build.box(room, Vector3(2.0, 0.765, -2.0), Vector3(0.5, 0.03, 0.16), Color(0.2, 0.2, 0.22))             # keyboard
+	Build.box(room, Vector3(2.4, 0.765, -2.0), Vector3(0.07, 0.03, 0.11), Color(0.2, 0.2, 0.22))            # mouse
+	Build.box(room, Vector3(2.55, 0.25, -2.2), Vector3(0.2, 0.5, 0.45), Color(0.12, 0.12, 0.14))            # tower
+	for chair_x in [0.5, 2.0]:
+		Build.box(room, Vector3(chair_x, 0.42, -1.45), Vector3(0.45, 0.06, 0.45), accent)
+		Build.box(room, Vector3(chair_x, 0.75, -1.24), Vector3(0.45, 0.6, 0.05), accent)
+		Build.box(room, Vector3(chair_x, 0.2, -1.45), Vector3(0.08, 0.4, 0.08), METAL)
+	Build.trigger(room, Vector3(0.5, 1.0, -1.3), Vector3(1.2, 2.0, 1.2), "Sit down and study", "study")
+	Build.trigger(room, Vector3(2.0, 1.0, -1.3), Vector3(1.2, 2.0, 1.2), "Use the computer", "computer")
+
+	# Wardrobe, a rug, your suitcase, a window onto a wall.
+	Build.box(room, Vector3(2.7, 1.0, 1.3), Vector3(0.5, 2.0, 1.4), WOOD, true)
+	Build.box(room, Vector3(-0.3, 0.01, 0.2), Vector3(2.2, 0.02, 1.5), accent.lerp(Color.WHITE, 0.45))
+	Build.box(room, Vector3(-2.4, 0.3, 1.6), Vector3(0.75, 0.6, 0.35), Color(0.55, 0.15, 0.15), true)
+	Build.glow(Build.box(room, Vector3(-2.97, 1.7, 0.6), Vector3(0.04, 1.0, 1.1), Color(0.15, 0.2, 0.4)), Color(0.25, 0.35, 0.7), 0.5)
+
+	# Things from the online marketplace.
+	var goods := {}
+	for id in ["lock", "fridge", "duvet", "textbook", "plant", "poster"]:
+		var node := Node3D.new()
+		node.visible = false
+		room.add_child(node)
+		goods[id] = node
+	Build.box(goods.lock, Vector3(0.5, 1.3, 2.42), Vector3(0.12, 0.16, 0.06), Color(0.8, 0.7, 0.3))
+	Build.box(goods.lock, Vector3(0.5, 1.42, 2.42), Vector3(0.08, 0.1, 0.03), METAL)
+	Build.box(goods.fridge, Vector3(1.2, 0.35, 2.1), Vector3(0.55, 0.7, 0.55), Color(0.93, 0.93, 0.95))
+	Build.box(goods.fridge, Vector3(1.2, 0.4, 1.81), Vector3(0.08, 0.1, 0.04), Color(0.8, 0.7, 0.3))        # padlock
+	Build.box(goods.duvet, Vector3(-2.2, 0.62, -0.85), Vector3(1.4, 0.18, 1.4), accent.lerp(Color(0.9, 0.85, 0.7), 0.4))
+	Build.box(goods.textbook, Vector3(0.85, 0.81, -2.2), Vector3(0.24, 0.12, 0.32), Color(0.75, 0.2, 0.2))
+	Build.box(goods.plant, Vector3(-0.6, 0.2, -2.2), Vector3(0.36, 0.4, 0.36), Color(0.6, 0.35, 0.25))
+	Build.box(goods.plant, Vector3(-0.6, 0.8, -2.2), Vector3(0.5, 0.8, 0.5), Color(0.2, 0.5, 0.25))
+	Build.box(goods.poster, Vector3(-2.97, 1.7, -1.2), Vector3(0.03, 0.9, 0.65), accent)
+	Build.box(goods.poster, Vector3(-2.95, 1.75, -1.2), Vector3(0.03, 0.4, 0.4), Color(0.95, 0.85, 0.3))
+	return {"spare": room, "bed": bed, "spare_entry": origin + Vector3(0, 0.1, 1.3), "goods": goods}
 
 
 ## The bank: a real counter behind glass, a queue, and far too much waiting.
@@ -350,8 +435,7 @@ static func university(parent: Node3D, origin: Vector3) -> Dictionary:
 		Build.glow(Build.box(room, Vector3(-8.0, 0.9, z - 0.13), Vector3(0.34, 0.22, 0.02), Color(0.2, 0.25, 0.4)), Color(0.5, 0.7, 1.0), 0.6)
 		Build.box(room, Vector3(-6.9, 0.82, z + 0.1), Vector3(0.22, 0.14, 0.3), Color(0.7, 0.2, 0.2))    # stacked textbooks
 	Build.person(room, Vector3(-6.7, 0, -3.3), 0.0, Body.random_look(rng))
-	Build.trigger(room, Vector3(-7.5, 1.0, -0.3), Vector3(3.4, 2, 1.2), "Sit down and study", "message").set_meta("message",
-		"You open a book. Studying for exams comes later.")
+	Build.trigger(room, Vector3(-7.5, 1.0, -0.3), Vector3(3.4, 2, 1.2), "Sit down and study", "study")
 
 	# Bookshelves, lockers, a vending machine, a trophy case, plants.
 	for x in [-11.0, -9.6, -8.2]:

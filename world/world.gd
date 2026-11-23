@@ -27,12 +27,20 @@ const PLACES := [
 		"color": Color(0.6, 0.7, 0.6), "prompt": "Ring the bell", "action": "flat"},
 	{"sign": "VIA MILANO 21", "road": "cross", "along": 75, "side": -1, "width": 12, "depth": 12, "height": 15,
 		"color": Color(0.65, 0.65, 0.8), "prompt": "Ring the bell", "action": "flat"},
+	{"sign": "SUPERMERCATO", "road": "main", "along": 51, "side": -1, "width": 24, "depth": 16, "height": 8,
+		"color": Color(0.9, 0.88, 0.84), "prompt": "Enter the supermarket", "action": "enter", "hours": Settings.SUPERMARKET_HOURS},
+	{"sign": "ALIMENTARI", "road": "main", "along": -48, "side": 1, "width": 14, "depth": 12, "height": 13,
+		"color": Color(0.82, 0.72, 0.5), "prompt": "Enter the shop", "action": "enter", "hours": Settings.CORNER_SHOP_HOURS},
+	{"sign": "MINIMARKET", "road": "cross", "along": 58, "side": 1, "width": 12, "depth": 12, "height": 12,
+		"color": Color(0.6, 0.72, 0.68), "prompt": "Enter the shop", "action": "enter", "hours": Settings.CORNER_SHOP_HOURS},
+	{"sign": "BENZINA", "road": "cross", "along": -72, "side": -1, "width": 10, "depth": 8, "height": 4.5,
+		"color": Color(0.9, 0.9, 0.88), "prompt": "Enter the petrol station shop", "action": "enter", "forecourt": true},
 ]
 ## Buildings you can't enter: [road, along, side, width, height]
 const FILLERS := [
-	["main", -45, -1, 16, 14], ["main", -22, -1, 18, 20], ["main", 50, -1, 18, 16], ["main", 76, -1, 20, 12],
-	["main", -48, 1, 20, 13], ["main", -75, 1, 18, 17], ["main", 26, 1, 22, 15],
-	["cross", 58, 1, 14, 12], ["cross", -65, 1, 16, 16], ["cross", -70, -1, 14, 13], ["cross", 95, 1, 16, 18],
+	["main", -45, -1, 16, 14], ["main", -22, -1, 18, 20], ["main", 76, -1, 20, 12],
+	["main", -75, 1, 18, 17], ["main", 26, 1, 22, 15],
+	["cross", -65, 1, 16, 16], ["cross", 95, 1, 16, 18],
 	["cross", 52, -1, 14, 14], ["cross", -42, 1, 14, 17],
 ]
 const FILLER_COLORS := [Color(0.72, 0.68, 0.62), Color(0.78, 0.7, 0.58), Color(0.66, 0.62, 0.6), Color(0.8, 0.74, 0.66)]
@@ -51,6 +59,9 @@ var _phone: Phone
 var _talk: Talk
 var _wheel: WheelScreen
 var _bank: BankScreen
+var _computer: Computer
+var _taken: Array[Area3D] = []  # things off the shop shelves: in your basket, or bought
+var _my_food: Node3D            # your food, standing on the lodger's shelf at home
 var _transition: Transition
 var _player: Player
 var _flat_doors := {}   # sign -> the Area3D at that flat's street door
@@ -92,6 +103,11 @@ func _ready() -> void:
 	add_child(_bank)
 	_bank.closed.connect(_on_bank_closed)
 	_bank.pass_time = _wait_at_bank
+	_computer = Computer.new()
+	add_child(_computer)
+	Game.food_changed.connect(_show_my_food)
+	Game.shelter_changed.connect(_show_my_food)
+	Game.goods_changed.connect(_show_goods)
 	_player = Player.new()
 	add_child(_player)
 	_player.prompt_changed.connect(_hud.set_prompt)
@@ -103,6 +119,10 @@ func _ready() -> void:
 	if Game.flatmate != null:
 		_bring_home(Game.flatmate)
 	_refresh_flat_doors()
+	_show_my_food()
+	_show_goods()
+	Game.inside = _inside
+	_show_rooms()
 	if Game.loaded_from_save:
 		# Carry on from where you last woke up.
 		_inside = Game.saved_inside
@@ -119,6 +139,9 @@ func _ready() -> void:
 
 func _process(_delta: float) -> void:
 	# Sun rises at 6:00, is highest at 12:00 and sets at 18:00... roughly; dusk lingers a little.
+	if Game.inside != _inside:
+		Game.inside = _inside
+		_show_rooms()
 	var hour := Game.hour()
 	var angle := (hour - 6.0) / 24.0 * TAU
 	var height := sin(angle)  # 1 at noon, -1 at midnight
@@ -178,7 +201,28 @@ func _on_interact(area: Area3D) -> void:
 			if Game.home != _inside:
 				_hud.show_message("Not your kitchen. Hands off the pasta.")
 			else:
-				_hud.show_message(Game.eat(Settings.COOK_PRICE, Settings.COOK_WELLBEING, "Pasta with whatever was in the fridge."))
+				_phone.open_at("food")
+		"take":
+			Game.cart.append({"item": area.get_meta("item"), "price": area.get_meta("price")})
+			area.get_parent().visible = false
+			area.collision_layer = 0
+			_taken.append(area)
+			_hud.show_message("%s in your basket. Pay at the till." % Food.name_of(area.get_meta("item")))
+		"fridge_door":
+			_swing(area)
+		"checkout":
+			await _check_out()
+		"study":
+			await _study()
+		"computer":
+			_computer.open()
+		"room_door":
+			if Game.home == "" or Game.home != _inside:
+				_hud.show_message("The spare room. It's locked: you don't live here.")
+			else:
+				await _through_door(_interiors[_inside].spare_entry, 0.0, Settings.CAMERA_DISTANCE_INDOORS)
+		"room_exit":
+			await _through_door(_interiors[_inside].room_door, PI / 2, Settings.CAMERA_DISTANCE_INDOORS)
 		"bed":
 			if Game.home != _inside:
 				_hud.show_message("That's not your bed.")
@@ -197,14 +241,116 @@ func _on_interact(area: Area3D) -> void:
 
 ## Walks through a door into a building, with a short fade.
 func _enter(sign: String) -> void:
+	_restock()
 	_inside = sign
 	await _through_door(_interiors[sign].entry, 0.0, Settings.CAMERA_DISTANCE_INDOORS)
 
 
 func _leave() -> void:
+	if not Game.cart.is_empty():
+		Game.cart = []
+		_hud.show_message("You put everything in your basket back on the shelves.")
 	var door: Array = _street_doors[_inside]
 	_inside = ""
 	await _through_door(door[0], door[1], Settings.CAMERA_DISTANCE)
+
+
+## Only the building you're in is drawn; the rest would cost time for nothing.
+func _show_rooms() -> void:
+	for sign in _interiors:
+		_interiors[sign].room.visible = sign == _inside
+		if _interiors[sign].has("spare"):
+			_interiors[sign].spare.visible = sign == _inside
+
+
+## Everything taken off a shelf goes back: when you put your basket back, and each time a shop is entered.
+func _restock() -> void:
+	for area in _taken:
+		area.get_parent().visible = true
+		area.collision_layer = 2
+	_taken.clear()
+
+
+## Fridge and freezer doors swing open and shut.
+func _swing(door: Area3D) -> void:
+	var open: bool = not door.get_meta("open", false)
+	door.set_meta("open", open)
+	var what := "freezer" if door.get_meta("freezer") else "fridge"
+	door.set_meta("prompt", ("Close the %s" if open else "Open the %s") % what)
+	var hinge: Node3D = door.get_meta("hinge")
+	create_tween().tween_property(hinge, "rotation:y", -1.9 if open else 0.0, 0.35).set_trans(Tween.TRANS_SINE)
+	_player.refresh_prompt()
+
+
+## The till: see what's in the basket, then pay, put it back, or carry on shopping.
+func _check_out() -> void:
+	if Game.cart.is_empty():
+		_hud.show_message("\"Buongiorno.\" Your basket is empty.\nLook at something on a shelf and click to take it.")
+		return
+	var counts := {}
+	for line in Game.cart:
+		counts[line.item] = counts.get(line.item, 0) + 1
+	var text := "Your basket\n"
+	var n := 0
+	for id in counts:
+		text += ("\n" if n % 3 == 0 else ",   ") + "%d x %s" % [counts[id], Food.name_of(id)]
+		n += 1
+	var total := Game.cart_total()
+	var options: Array[String] = ["Pay %d euro" % total, "Put everything back", "Keep shopping"]
+	var pick: int = await _choose(text + "\n\nTotal: %d euro" % total, options)
+	if pick == 0:
+		if Game.check_out():
+			_hud.show_message("Paid %d euro. %s" % [total, "It goes on your shelf at home." if Game.home != "" else "It goes in your bag. Tab, then Food, to eat."])
+		else:
+			_hud.show_message("\"%d euro.\" You don't have it. The queue behind you sighs." % total)
+	elif pick == 1:
+		Game.cart = []
+		_restock()
+		_hud.show_message("You put everything back.")
+
+
+## Hours with the books, at the university or at your own desk.
+func _study() -> void:
+	var options: Array[String] = ["Study for 1 hour", "Study for 2 hours", "Study for 3 hours", "Not now"]
+	var pick: int = await _choose("Exams are on days 10, 20 and 30.\nHours studied so far: %.1f" % Game.study_hours, options)
+	if pick > 2:
+		return
+	var hours := pick + 1
+	if Game.minutes_until(Settings.PASS_OUT_HOUR) <= hours * 60:
+		_hud.show_message("It's far too late for that. Your eyes are closing.")
+		return
+	Game.modal_open = true
+	Game.clock_running = false
+	await _transition.fade(1.0, 0.6)
+	await _transition.roll_clock(hours * 60, 2.5, "Reading. Highlighting. Reading the same line again.")
+	await _transition.fade(0.0, 0.6)
+	Game.modal_open = false
+	Game.clock_running = true
+	_hud.show_message(Game.study(hours))
+
+
+## What you own to eat, lined up on the lodger's shelf in the kitchen at home.
+func _show_my_food() -> void:
+	if _my_food != null:
+		_my_food.queue_free()
+		_my_food = null
+	if Game.home == "":
+		return
+	_my_food = Node3D.new()
+	_interiors[Game.home].room.add_child(_my_food)
+	var shelf: Vector3 = _interiors[Game.home].food_shelf
+	for i in mini(Game.food.size(), 14):
+		var piece := Food.model(Game.food[i])
+		piece.position = shelf + Vector3(i * 0.2, 0, 0)
+		_my_food.add_child(piece)
+
+
+## Things bought online turn up in your room.
+func _show_goods() -> void:
+	for sign in FLAT_LOOKS:
+		var goods: Dictionary = _interiors[sign].goods
+		for id in goods:
+			goods[id].visible = Game.owned.has(id)
 
 
 func _through_door(to: Vector3, yaw: float, camera_distance: float) -> void:
@@ -253,7 +399,7 @@ func _ring_bell(sign: String) -> void:
 		return
 	_bring_home(flatmate)
 	await _enter(sign)
-	_hud.show_message("You live here now, with %s. The bed and the kitchen are yours.\nNext rent: %d euro on day %d." % [flatmate.name, Game.rent, Game.rent_due_day])
+	_hud.show_message("You live here now, with %s. Your room is through the door on the right.\nNext rent: %d euro on day %d." % [flatmate.name, Game.rent, Game.rent_due_day])
 
 
 func _go_to_couch(host: Person) -> void:
@@ -368,12 +514,17 @@ func _on_night_ended() -> void:
 		_talk.close()
 	if _bank.is_open():
 		_bank.close()
+	if _computer.is_open():
+		_computer.close()
 	if Game.phone_open:
 		_phone.toggle()
 	# Awake at 5:00 at home, or in a flat you were invited to: you drop onto the bed or the couch.
 	var onto := ""
 	if Game.home != "" and Game.home == _inside:
-		onto = "bed"
+		var bed: Area3D = _interiors[_inside].bed
+		_player.teleport(_interiors[_inside].spare_entry, 0.0)
+		_sleep(bed.get_meta("lie_at"), bed.get_meta("lie_yaw"))
+		return
 	elif Game.shelter_host != null and Game.shelter_host.home == _inside:
 		onto = "sleep"
 	if onto != "":
@@ -595,11 +746,41 @@ func _build_building(road: String, along: float, side: int, width: float, depth:
 	doorstep.set_meta("hours", place.get("hours", []))
 	if place.action == "flat":
 		_flat_doors[place.sign] = doorstep
+	if place.get("forecourt", false):
+		_build_forecourt(lot, width)
 	# Coming back out, you stand on the doorstep with your back to the building.
 	_street_doors[place.sign] = [lot.to_global(Vector3(0, 0.1, 2.5)), lot.rotation.y + PI]
 
 
+## The petrol station's pumps, canopy and one parked car, beside the kiosk.
+func _build_forecourt(lot: Node3D, width: float) -> void:
+	var x := width / 2 + 5.5
+	var red := Color(0.85, 0.15, 0.1)
+	Build.box(lot, Vector3(x, 0.03, -3.5), Vector3(10, 0.06, 8), Color(0.28, 0.28, 0.3))        # tarmac
+	Build.box(lot, Vector3(x, 4.7, -3.5), Vector3(10, 0.4, 7), Color(0.92, 0.92, 0.9))          # canopy
+	Build.box(lot, Vector3(x, 4.7, 0.02), Vector3(10, 0.42, 0.06), red)
+	Build.sign(lot, Vector3(x, 4.7, 0.08), "BENZINA 1.89     DIESEL 1.79", 110, 0.0, Color(1.0, 0.92, 0.4))
+	for pump_x in [x - 2.8, x + 2.8]:
+		Build.box(lot, Vector3(pump_x, 2.25, -3.5), Vector3(0.3, 4.5, 0.3), Color(0.8, 0.8, 0.82), true)
+		Build.box(lot, Vector3(pump_x, 0.1, -3.5), Vector3(1.2, 0.2, 2.6), Color(0.6, 0.6, 0.6), true)
+		for pump_z in [-4.4, -2.6]:
+			Build.box(lot, Vector3(pump_x, 0.95, pump_z), Vector3(0.6, 1.5, 0.5), red, true)
+			Build.glow(Build.box(lot, Vector3(pump_x + 0.31, 1.35, pump_z), Vector3(0.02, 0.3, 0.3), Color(0.1, 0.2, 0.15)), Color(0.4, 1.0, 0.6), 0.8)
+			Build.box(lot, Vector3(pump_x + 0.34, 0.9, pump_z + 0.2), Vector3(0.06, 0.5, 0.06), Color(0.08, 0.08, 0.08))  # nozzle
+	_lamps.append(Build.light(lot, Vector3(x, 4.2, -3.5), Color(1.0, 0.96, 0.88), 3.0, 13.0))
+	# Somebody's car, filling up forever.
+	Build.box(lot, Vector3(x, 0.6, -3.5), Vector3(1.7, 0.6, 3.9), Color(0.2, 0.35, 0.6), true)
+	Build.box(lot, Vector3(x, 1.15, -3.3), Vector3(1.55, 0.5, 2.0), Color(0.2, 0.35, 0.6))
+	Build.box(lot, Vector3(x, 1.17, -3.3), Vector3(1.58, 0.36, 1.7), Color(0.6, 0.75, 0.85))    # windows
+	for wheel in [Vector3(-0.85, 0.32, -2.2), Vector3(0.85, 0.32, -2.2), Vector3(-0.85, 0.32, -4.8), Vector3(0.85, 0.32, -4.8)]:
+		Build.box(lot, Vector3(x, 0, 0) + wheel, Vector3(0.22, 0.64, 0.64), Color(0.06, 0.06, 0.06))
+
+
 func _build_interiors() -> void:
+	_interiors["SUPERMERCATO"] = Shops.supermarket(self, INTERIORS_AT + Vector3(220, 0, 0))
+	_interiors["ALIMENTARI"] = Shops.corner(self, INTERIORS_AT + Vector3(220, 0, 60), Color(0.9, 0.85, 0.7), "ALIMENTARI", 3)
+	_interiors["MINIMARKET"] = Shops.corner(self, INTERIORS_AT + Vector3(220, 0, 120), Color(0.8, 0.88, 0.85), "MINIMARKET", 8)
+	_interiors["BENZINA"] = Shops.gas(self, INTERIORS_AT + Vector3(220, 0, 180))
 	_interiors["VIA ROMA 12"] = Interiors.party(self, INTERIORS_AT)
 	_interiors["BANCA"] = Interiors.bank(self, INTERIORS_AT + Vector3(0, 0, 60))
 	_interiors["STAZIONE CENTRALE"] = Interiors.station(self, INTERIORS_AT + Vector3(100, 0, 0))

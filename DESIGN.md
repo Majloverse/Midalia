@@ -111,8 +111,33 @@ Agreed 18 November 2026.
 
 ### Food
 
-- One meal a day counts. Eat at the station bar (12 euro), or cook at home once the player has a room (4 euro).
-- Waking up after a day without a meal costs wellbeing.
+- One proper meal a day counts. Waking up after a day without one costs wellbeing.
+- Up to three snacks or drinks a day give a little extra wellbeing.
+- Ways to eat: the station bar (12 euro, no shopping needed), or food bought in a shop.
+- Food is one of three kinds: ready to eat (panino, salad, bread), needs cooking (pasta, eggs, frozen pizza), or a snack. Cooking needs the kitchen of a flat the player rents in, and gives the most wellbeing for the least money.
+- Bought food sits on the lodger's shelf in the kitchen at home, or in the bag while the player has no home. It is eaten from the Food screen on the phone or at the kitchen counter.
+
+### Shops
+
+Agreed 18 November 2026.
+
+- **Supermarket:** the biggest and cheapest, with aisles, a wall of fridges and freezers, fruit, bread and three tills. Open 8:00 to 21:00.
+- **Two corner shops** (Alimentari, Minimarket): a bit of everything at 1.3 times the price. Open 7:00 to 23:00.
+- **Petrol station:** snacks, drinks and sandwiches at 1.7 times the price. Never closes.
+- Food stands on the shelves as 3D objects. The player looks at an item (a dot marks the middle of the screen) and clicks, or presses E, to put it in the basket.
+- Fridges and freezers have glass doors that must be opened first, the same way.
+- The basket is paid for at the till. Leaving without paying puts everything back; there is no stealing yet.
+- Flats have their owners' food lying around the kitchen.
+
+### Your room
+
+Agreed 18 November 2026.
+
+- Each student flat has a spare room behind a door. It is locked unless the player rents there.
+- It holds the player's bed, a desk to study at, and a computer.
+- **Studying** (at this desk or at the university tables) takes 1 to 3 hours and adds to the hours studied, shown in the university app. Exams will use this number.
+- **The computer** has internet: messages to everyone in the phone, and an online marketplace paid from the bank account (so it needs one). The marketplace sells a door lock (no cash theft), a padlocked mini fridge (no food theft), a duvet (better sleep), a textbook (studying counts 1.5 times), a plant and a poster (a little wellbeing once).
+- A two-faced flatmate can also eat a piece of the player's food at night.
 
 ## First build
 

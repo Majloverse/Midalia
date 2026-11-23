@@ -119,9 +119,36 @@ const KICK_OUT_HOUR := 19
 ## A meal at the station bar.
 const MEAL_PRICE := 12
 const MEAL_WELLBEING := 5
-## Cooking in your own kitchen, once you have a room.
-const COOK_PRICE := 4
-const COOK_WELLBEING := 3
+## Snacks and drinks that still do you any good in one day.
+const SNACKS_PER_DAY := 3
+## What each kind of shop charges, as a multiple of the prices in game/food.gd.
+const SHOP_PRICES := {"supermarket": 1.0, "corner": 1.3, "gas": 1.7}
+## Opening hours. The petrol station never closes.
+const SUPERMARKET_HOURS := [8, 21]
+const CORNER_SHOP_HOURS := [7, 23]
+## How far in front of you (metres) you can pick something up by looking at it.
+const REACH := 2.4
+## Chance per night that a two-faced flatmate eats something of yours.
+const FLATMATE_EAT_CHANCE := 0.15
+
+# --- Your room ---
+## Things sold on the online marketplace, bought from the computer in your room.
+## Paid from the bank account, so it needs one.
+const GOODS := [
+	{"id": "lock", "name": "Lock for your door", "price": 30, "about": "Nobody takes cash from your room while you sleep."},
+	{"id": "fridge", "name": "Mini fridge with a padlock", "price": 45, "about": "Your food stays your food."},
+	{"id": "duvet", "name": "Warm duvet", "price": 35, "about": "A night in your bed does you more good."},
+	{"id": "textbook", "name": "Second-hand textbook", "price": 25, "about": "Every hour of studying counts for more."},
+	{"id": "plant", "name": "House plant", "price": 10, "about": "Something alive that isn't judging you."},
+	{"id": "poster", "name": "Poster", "price": 6, "about": "Makes the room feel a little less like a cell."},
+]
+## Extra wellbeing from a night under the duvet.
+const DUVET_WELLBEING := 5
+## How much more an hour of studying counts with the textbook.
+const TEXTBOOK_STUDY_BONUS := 1.5
+## One-off wellbeing when these arrive.
+const PLANT_WELLBEING := 3
+const POSTER_WELLBEING := 2
 ## Lost when you wake up after a day without eating.
 const HUNGRY_WELLBEING := -10
 

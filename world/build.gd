@@ -52,6 +52,29 @@ static func trigger(parent: Node3D, at: Vector3, size: Vector3, prompt: String, 
 	return area
 
 
+## Something you use by looking straight at it and clicking (or pressing E),
+## instead of by standing in a zone: things on shelves, fridge doors.
+static func lookable(parent: Node3D, at: Vector3, size: Vector3, prompt: String, action: String) -> Area3D:
+	var area := trigger(parent, at, size, prompt, action)
+	# Layer 2 is only ever hit by the player's line of sight.
+	area.collision_layer = 2
+	area.collision_mask = 0
+	area.monitoring = false
+	return area
+
+
+## An invisible solid block, to keep the player out of a piece of furniture made of many small parts.
+static func blocker(parent: Node3D, at: Vector3, size: Vector3) -> void:
+	var body := StaticBody3D.new()
+	var shape := CollisionShape3D.new()
+	var box_shape := BoxShape3D.new()
+	box_shape.size = size
+	shape.shape = box_shape
+	body.add_child(shape)
+	body.position = at
+	parent.add_child(body)
+
+
 static func light(parent: Node3D, at: Vector3, color: Color, energy: float, reach: float) -> OmniLight3D:
 	var lamp := OmniLight3D.new()
 	lamp.position = at

@@ -60,7 +60,10 @@ const TONE_EXAMPLES := {
 ## Requests are spotted by keywords: plain rules are more reliable here than a tiny model.
 ## The first match wins, so a room to rent is checked before a couch for the night.
 const REQUEST_WORDS := {
-	"room": ["room", "to rent", "renting", "rent a", "move in", "flatmate", "roommate", "live with", "place to live"],
+	# Not the bare word "room": "i found a room!" is news, not a request.
+	"room": ["spare room", "room to rent", "rent a", "rent the", "rent your", "to rent", "renting", "room free", "free room",
+		"room available", "need a room", "looking for a room", "have a room", "got a room", "move in", "flatmate", "roommate",
+		"live with you", "place to live"],
 	"shelter": ["couch", "sleep", "crash", "stay at", "stay with", "stay over", "place to stay", "sofa", "your place", "at yours"],
 	"loan": ["lend", "borrow", "loan", "money", "euro", "cash", "spot me", "pay you back"],
 	"info": ["where", "how do", "how can", "do you know", "what time", "which", "bank account", "directions"],
