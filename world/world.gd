@@ -3,47 +3,26 @@ extends Node3D
 ## couch, sleeping or passing out, and the bank. Everything is built from simple
 ## blocks here; proper models replace them later.
 ##
-## Two streets cross in the middle. Each place sits on the "main" street (runs
-## east-west) or the "cross" street (runs north-south): `along` is how far down
-## that street, `side` is which side of it (-1 or 1).
+## The streets are the real centre of Milan (see Milan). The game's doors sit on
+## real walls within a few minutes' walk of the university; world/milan/places.json
+## says where.
 
-const ROAD_HALF_WIDTH := 5.0
-const SETBACK := 8.0  # distance from the street's centre line to building fronts
-## Interiors are separate rooms built far from the streets.
-const INTERIORS_AT := Vector3(500, 0, 0)
+## Interiors are separate rooms built far from the city.
+const INTERIORS_AT := Vector3(3000, 0, 0)
 
 const PLACES := [
-	{"sign": "STAZIONE CENTRALE", "road": "main", "along": -70, "side": -1, "width": 30, "depth": 16, "height": 12,
-		"color": Color(0.75, 0.7, 0.6), "prompt": "Enter the station", "action": "enter"},
-	{"sign": "BANCA", "road": "main", "along": 28, "side": -1, "width": 16, "depth": 12, "height": 10,
-		"color": Color(0.8, 0.8, 0.75), "prompt": "Enter the bank", "action": "bank"},
-	{"sign": "UNIVERSITÀ", "road": "main", "along": 70, "side": 1, "width": 34, "depth": 20, "height": 14,
-		"color": Color(0.7, 0.55, 0.45), "prompt": "Enter the university", "action": "enter", "hours": [8, 20]},
-	{"sign": "VIA ROMA 12", "road": "main", "along": -22, "side": 1, "width": 14, "depth": 12, "height": 18,
-		"color": Color(0.85, 0.65, 0.4), "prompt": "Go up to the party", "action": "party"},
-	{"sign": "VIA VERDI 3", "road": "cross", "along": 40, "side": 1, "width": 12, "depth": 12, "height": 15,
-		"color": Color(0.8, 0.5, 0.45), "prompt": "Ring the bell", "action": "flat"},
-	{"sign": "VIA DANTE 7", "road": "cross", "along": -45, "side": -1, "width": 12, "depth": 12, "height": 15,
-		"color": Color(0.6, 0.7, 0.6), "prompt": "Ring the bell", "action": "flat"},
-	{"sign": "VIA MILANO 21", "road": "cross", "along": 75, "side": -1, "width": 12, "depth": 12, "height": 15,
-		"color": Color(0.65, 0.65, 0.8), "prompt": "Ring the bell", "action": "flat"},
-	{"sign": "SUPERMERCATO", "road": "main", "along": 51, "side": -1, "width": 24, "depth": 16, "height": 8,
-		"color": Color(0.9, 0.88, 0.84), "prompt": "Enter the supermarket", "action": "enter", "hours": Settings.SUPERMARKET_HOURS},
-	{"sign": "ALIMENTARI", "road": "main", "along": -48, "side": 1, "width": 14, "depth": 12, "height": 13,
-		"color": Color(0.82, 0.72, 0.5), "prompt": "Enter the shop", "action": "enter", "hours": Settings.CORNER_SHOP_HOURS},
-	{"sign": "MINIMARKET", "road": "cross", "along": 58, "side": 1, "width": 12, "depth": 12, "height": 12,
-		"color": Color(0.6, 0.72, 0.68), "prompt": "Enter the shop", "action": "enter", "hours": Settings.CORNER_SHOP_HOURS},
-	{"sign": "BENZINA", "road": "cross", "along": -72, "side": -1, "width": 10, "depth": 8, "height": 4.5,
-		"color": Color(0.9, 0.9, 0.88), "prompt": "Enter the petrol station shop", "action": "enter", "forecourt": true},
+	{"sign": "STAZIONE CENTRALE", "prompt": "Enter the station", "action": "enter"},
+	{"sign": "BANCA", "prompt": "Enter the bank", "action": "bank"},
+	{"sign": "UNIVERSITÀ", "prompt": "Enter the university", "action": "enter", "hours": [8, 20]},
+	{"sign": "VIA ROMA 12", "prompt": "Go up to the party", "action": "party"},
+	{"sign": "VIA VERDI 3", "prompt": "Ring the bell", "action": "flat"},
+	{"sign": "VIA DANTE 7", "prompt": "Ring the bell", "action": "flat"},
+	{"sign": "VIA MILANO 21", "prompt": "Ring the bell", "action": "flat"},
+	{"sign": "SUPERMERCATO", "prompt": "Enter the supermarket", "action": "enter", "hours": Settings.SUPERMARKET_HOURS},
+	{"sign": "ALIMENTARI", "prompt": "Enter the shop", "action": "enter", "hours": Settings.CORNER_SHOP_HOURS},
+	{"sign": "MINIMARKET", "prompt": "Enter the shop", "action": "enter", "hours": Settings.CORNER_SHOP_HOURS},
+	{"sign": "BENZINA", "prompt": "Enter the petrol station shop", "action": "enter"},
 ]
-## Buildings you can't enter: [road, along, side, width, height]
-const FILLERS := [
-	["main", -45, -1, 16, 14], ["main", -22, -1, 18, 20], ["main", 76, -1, 20, 12],
-	["main", -75, 1, 18, 17], ["main", 26, 1, 22, 15],
-	["cross", -65, 1, 16, 16], ["cross", 95, 1, 16, 18],
-	["cross", 52, -1, 14, 14], ["cross", -42, 1, 14, 17],
-]
-const FILLER_COLORS := [Color(0.72, 0.68, 0.62), Color(0.78, 0.7, 0.58), Color(0.66, 0.62, 0.6), Color(0.8, 0.74, 0.66)]
 ## Each student flat's walls and furniture colour.
 const FLAT_LOOKS := {
 	"VIA VERDI 3": [Color(0.85, 0.78, 0.68), Color(0.65, 0.25, 0.25)],
@@ -54,6 +33,7 @@ const FLAT_LOOKS := {
 var _sun: DirectionalLight3D
 var _environment: Environment
 var _lamps: Array[OmniLight3D] = []
+var _walls: Array = []  # the city's wall materials; their windows light up at night
 var _hud: Hud
 var _phone: Phone
 var _talk: Talk
@@ -76,17 +56,12 @@ signal _chosen(index: int)
 
 func _ready() -> void:
 	_build_sky()
-	_build_ground()
+	var city := Milan.build(self)
+	_walls = city.walls
 	for place in PLACES:
-		_build_building(place.road, place.along, place.side, place.width, place.depth, place.height, place.color, place)
-	for i in FILLERS.size():
-		var f: Array = FILLERS[i]
-		_build_building(f[0], f[1], f[2], f[3], 12, f[4], FILLER_COLORS[i % FILLER_COLORS.size()], {})
-	for x in range(-90, 91, 30):
-		_build_lamp(Vector3(x, 0, ROAD_HALF_WIDTH + 1.0))
-		_build_lamp(Vector3(x + 15, 0, -ROAD_HALF_WIDTH - 1.0))
-	for z in [-80, -50, -25, 25, 55, 85]:
-		_build_lamp(Vector3(ROAD_HALF_WIDTH + 1.0, 0, z))
+		_build_door(place, city.places[place.sign])
+	for lamp in city.lamps:
+		_build_lamp(Vector3(lamp[0], 0, lamp[1]))
 	_build_interiors()
 
 	_hud = Hud.new()
@@ -126,7 +101,13 @@ func _ready() -> void:
 	if Game.loaded_from_save:
 		# Carry on from where you last woke up.
 		_inside = Game.saved_inside
-		_player.teleport(Game.saved_position, 0.0)
+		if Game.saved_map == Game.MAP:
+			_player.teleport(Game.saved_position, 0.0)
+		elif _inside != "":
+			# A save from an older map: you are still in the same building, by its door.
+			_player.teleport(_interiors[_inside].entry, 0.0)
+		else:
+			_player.teleport(_street_doors["STAZIONE CENTRALE"][0], _street_doors["STAZIONE CENTRALE"][1])
 		_player.set_camera_distance(Settings.CAMERA_DISTANCE_INDOORS if _inside != "" else Settings.CAMERA_DISTANCE)
 		_ask_continue()
 	else:
@@ -154,6 +135,7 @@ func _process(_delta: float) -> void:
 	_environment.ambient_light_energy = lerpf(0.35, 1.0, daylight) * (0.45 if _inside != "" else 1.0)
 	for lamp in _lamps:
 		lamp.visible = daylight < 0.6
+	Milan.set_night(_walls, 1.0 - daylight)
 	if Game.wellbeing <= 0 and not _game_over and not Game.modal_open:
 		_show_game_over()
 
@@ -688,50 +670,13 @@ func _build_sky() -> void:
 	add_child(world_environment)
 
 
-func _build_ground() -> void:
-	Build.box(self, Vector3(0, -0.5, 0), Vector3(240, 1, 240), Color(0.55, 0.55, 0.5), true)       # pavement
-	Build.box(self, Vector3(0, 0.02, 0), Vector3(240, 0.04, ROAD_HALF_WIDTH * 2), Color(0.2, 0.2, 0.22))  # main street
-	Build.box(self, Vector3(0, 0.02, 0), Vector3(ROAD_HALF_WIDTH * 2, 0.04, 240), Color(0.2, 0.2, 0.22))  # cross street
-	for i in range(-110, 111, 8):  # centre line dashes
-		if absi(i) > 6:
-			Build.box(self, Vector3(i, 0.05, 0), Vector3(3, 0.02, 0.2), Color(0.9, 0.9, 0.85))
-			Build.box(self, Vector3(0, 0.05, i), Vector3(0.2, 0.02, 3), Color(0.9, 0.9, 0.85))
-	# Invisible walls at the edge of the neighbourhood.
-	for edge in [Vector3(115, 0, 0), Vector3(-115, 0, 0), Vector3(0, 0, 115), Vector3(0, 0, -115)]:
-		var wall := StaticBody3D.new()
-		var shape := CollisionShape3D.new()
-		var box := BoxShape3D.new()
-		box.size = Vector3(2, 40, 240) if edge.x != 0 else Vector3(240, 40, 2)
-		shape.shape = box
-		wall.add_child(shape)
-		wall.position = edge
-		add_child(wall)
-
-
-## Builds one building. A "lot" node sits at the front door, turned so that its
-## own -Z points into the building; everything else is placed relative to it.
-func _build_building(road: String, along: float, side: int, width: float, depth: float, height: float, color: Color, place: Dictionary) -> void:
+## One of the game's doors, on a real wall. A "lot" node sits at the door, turned
+## so that its own -Z points into the building; everything else is placed relative to it.
+func _build_door(place: Dictionary, at: Dictionary) -> void:
 	var lot := Node3D.new()
-	if road == "main":
-		lot.position = Vector3(along, 0, side * SETBACK)
-		lot.rotation.y = 0.0 if side < 0 else PI
-	else:
-		lot.position = Vector3(side * SETBACK, 0, along)
-		lot.rotation.y = PI / 2 if side < 0 else -PI / 2
+	lot.position = Vector3(at.x, 0, at.z)
+	lot.rotation.y = at.yaw
 	add_child(lot)
-
-	Build.box(lot, Vector3(0, height / 2, -depth / 2), Vector3(width, height, depth), color, true)
-	# Windows on the street side; they glow a little so the street has life at night.
-	var columns := int(width / 3.5)
-	for row in range(1, int(height / 3.2)):
-		for column in columns:
-			var x := (column - (columns - 1) / 2.0) * 3.5
-			var window := Build.box(lot, Vector3(x, 1.5 + row * 3.2, 0.03), Vector3(1.4, 1.8, 0.06), Color(0.15, 0.18, 0.25))
-			if (int(along) + row * 7 + column * 13) % 3 != 0:
-				Build.glow(window, Color(1.0, 0.85, 0.5), 0.6)
-
-	if place.is_empty():
-		return
 	Build.box(lot, Vector3(0, 1.2, 0.05), Vector3(1.6, 2.4, 0.1), Color(0.25, 0.15, 0.1))  # door
 	var sign := Label3D.new()
 	sign.text = place.sign
@@ -740,40 +685,19 @@ func _build_building(road: String, along: float, side: int, width: float, depth:
 	sign.outline_size = 24
 	sign.position = Vector3(0, 3.3, 0.15)
 	lot.add_child(sign)
+	# A second sign sticks out from the wall, to be read from down the street, with a lamp over the door.
+	Build.box(lot, Vector3(0, 5.0, 1.0), Vector3(0.12, 0.9, 2.0), Color(0.12, 0.12, 0.14))
+	for side in [-1, 1]:
+		Build.sign(lot, Vector3(side * 0.07, 5.0, 1.0), place.sign, 44, side * PI / 2)
+	_lamps.append(Build.light(lot, Vector3(0, 3.6, 1.2), Color(1.0, 0.85, 0.6), 2.0, 9.0))
 	var doorstep := Build.trigger(lot, Vector3(0, 1.5, 2), Vector3(4, 3, 4), place.prompt, place.action)
 	doorstep.set_meta("sign", place.sign)
 	doorstep.set_meta("message", place.get("message", ""))
 	doorstep.set_meta("hours", place.get("hours", []))
 	if place.action == "flat":
 		_flat_doors[place.sign] = doorstep
-	if place.get("forecourt", false):
-		_build_forecourt(lot, width)
 	# Coming back out, you stand on the doorstep with your back to the building.
 	_street_doors[place.sign] = [lot.to_global(Vector3(0, 0.1, 2.5)), lot.rotation.y + PI]
-
-
-## The petrol station's pumps, canopy and one parked car, beside the kiosk.
-func _build_forecourt(lot: Node3D, width: float) -> void:
-	var x := width / 2 + 5.5
-	var red := Color(0.85, 0.15, 0.1)
-	Build.box(lot, Vector3(x, 0.03, -3.5), Vector3(10, 0.06, 8), Color(0.28, 0.28, 0.3))        # tarmac
-	Build.box(lot, Vector3(x, 4.7, -3.5), Vector3(10, 0.4, 7), Color(0.92, 0.92, 0.9))          # canopy
-	Build.box(lot, Vector3(x, 4.7, 0.02), Vector3(10, 0.42, 0.06), red)
-	Build.sign(lot, Vector3(x, 4.7, 0.08), "BENZINA 1.89     DIESEL 1.79", 110, 0.0, Color(1.0, 0.92, 0.4))
-	for pump_x in [x - 2.8, x + 2.8]:
-		Build.box(lot, Vector3(pump_x, 2.25, -3.5), Vector3(0.3, 4.5, 0.3), Color(0.8, 0.8, 0.82), true)
-		Build.box(lot, Vector3(pump_x, 0.1, -3.5), Vector3(1.2, 0.2, 2.6), Color(0.6, 0.6, 0.6), true)
-		for pump_z in [-4.4, -2.6]:
-			Build.box(lot, Vector3(pump_x, 0.95, pump_z), Vector3(0.6, 1.5, 0.5), red, true)
-			Build.glow(Build.box(lot, Vector3(pump_x + 0.31, 1.35, pump_z), Vector3(0.02, 0.3, 0.3), Color(0.1, 0.2, 0.15)), Color(0.4, 1.0, 0.6), 0.8)
-			Build.box(lot, Vector3(pump_x + 0.34, 0.9, pump_z + 0.2), Vector3(0.06, 0.5, 0.06), Color(0.08, 0.08, 0.08))  # nozzle
-	_lamps.append(Build.light(lot, Vector3(x, 4.2, -3.5), Color(1.0, 0.96, 0.88), 3.0, 13.0))
-	# Somebody's car, filling up forever.
-	Build.box(lot, Vector3(x, 0.6, -3.5), Vector3(1.7, 0.6, 3.9), Color(0.2, 0.35, 0.6), true)
-	Build.box(lot, Vector3(x, 1.15, -3.3), Vector3(1.55, 0.5, 2.0), Color(0.2, 0.35, 0.6))
-	Build.box(lot, Vector3(x, 1.17, -3.3), Vector3(1.58, 0.36, 1.7), Color(0.6, 0.75, 0.85))    # windows
-	for wheel in [Vector3(-0.85, 0.32, -2.2), Vector3(0.85, 0.32, -2.2), Vector3(-0.85, 0.32, -4.8), Vector3(0.85, 0.32, -4.8)]:
-		Build.box(lot, Vector3(x, 0, 0) + wheel, Vector3(0.22, 0.64, 0.64), Color(0.06, 0.06, 0.06))
 
 
 func _build_interiors() -> void:

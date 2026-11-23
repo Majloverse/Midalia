@@ -21,6 +21,8 @@ const SECRETS := [
 	"you eat their leftovers when you think nobody's looking",
 ]
 const SAVE_PATH := "user://midalia_save.json"
+## Which street map a save's position belongs to. Change it when the streets move.
+const MAP := "milan-1"
 
 var wellbeing: int
 var cash: int
@@ -80,6 +82,7 @@ var llm_ready := false
 var loaded_from_save := false
 var saved_inside := ""
 var saved_position := Vector3.ZERO
+var saved_map := ""
 
 var _last_minute := -1
 
@@ -248,7 +251,7 @@ func save_game(inside: String, position: Vector3) -> void:
 		"people": people.map(func(p): return p.to_data()),
 		"contacts": contacts.map(func(p): return people.find(p)),
 		"partygoers": partygoers.map(func(p): return people.find(p)),
-		"inside": inside, "position": [position.x, position.y, position.z],
+		"inside": inside, "position": [position.x, position.y, position.z], "map": MAP,
 	}
 	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if file != null:
@@ -294,6 +297,7 @@ func load_game() -> bool:
 	study_hours = data.get("study_hours", 0.0)
 	snacks_today = int(data.get("snacks_today", 0))
 	saved_inside = data.inside
+	saved_map = data.get("map", "")
 	saved_position = Vector3(data.position[0], data.position[1], data.position[2])
 	loaded_from_save = true
 	return true
