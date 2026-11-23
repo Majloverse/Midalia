@@ -4,7 +4,7 @@ extends Node3D
 ## blocks here; proper models replace them later.
 ##
 ## The streets are the real centre of Milan (see Milan). The game's doors sit on
-## real walls within a few minutes' walk of the university; world/milan/places.json
+## real walls within a few minutes' walk of Stazione Centrale; world/milan/places.json
 ## says where.
 
 ## Interiors are separate rooms built far from the city.
@@ -665,6 +665,13 @@ func _build_sky() -> void:
 	_environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	_environment.ambient_light_color = Color(0.55, 0.6, 0.75)
 	_environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	# The far end of a street fades into the sky, just before the camera stops drawing it.
+	_environment.fog_enabled = true
+	_environment.fog_mode = Environment.FOG_MODE_DEPTH
+	_environment.fog_depth_begin = 220.0
+	_environment.fog_depth_end = 480.0
+	_environment.fog_aerial_perspective = 1.0
+	_environment.fog_sky_affect = 0.0
 	var world_environment := WorldEnvironment.new()
 	world_environment.environment = _environment
 	add_child(world_environment)

@@ -3,12 +3,12 @@
     uv run --python 3.11 --with bpy --with shapely world/milan/build_map.py
 
 Writes, next to this file:
-    milan.glb     the city: extruded buildings, roads, paths, squares, parks, water, ground
+    milan.glb.gz  the city: extruded buildings, roads, paths, squares, parks, water, ground
     places.json   where each of the game's doors sits on a real building, and the street lamps
 The OpenStreetMap download is kept as osm.json (not committed); delete it to fetch fresh data.
 Map data (c) OpenStreetMap contributors, ODbL.
 """
-import json, math, pathlib, random, urllib.parse, urllib.request
+import gzip, json, math, pathlib, random, time, urllib.parse, urllib.request
 import bpy, bmesh
 from bmesh.types import BMFace
 from shapely.geometry import Point, Polygon, LineString
@@ -16,18 +16,21 @@ from shapely.geometry.polygon import orient
 from shapely.strtree import STRtree
 
 HERE = pathlib.Path(__file__).parent
-S, W, N, E = 45.4560, 9.1780, 45.4720, 9.2020   # the piece of Milan that is built: Duomo and around
-HUB = (45.4603, 9.1938)                         # the university's front door (Statale, Via Festa del Perdono)
-# The game's doors, nearest the university first. Signs must match PLACES in world.gd.
-SIGNS = ["UNIVERSITÀ", "ALIMENTARI", "VIA VERDI 3", "BANCA", "SUPERMERCATO", "VIA DANTE 7",
-         "MINIMARKET", "VIA ROMA 12", "VIA MILANO 21", "BENZINA", "STAZIONE CENTRALE"]
+CENTRE, RADIUS = (45.4641, 9.1919), 3800.0     # the piece of Milan that is built: a circle round the Duomo,
+                                                # out past Corvetto, so it holds Stazione Centrale and CityLife too
+HUB = (45.4846, 9.2040)                         # Piazza Duca d'Aosta, in front of Stazione Centrale, where the game begins
+STATION = "Milano Centrale"                     # the real building that gets the station's door
+# The game's doors, nearest the station first. Signs must match PLACES in world.gd.
+SIGNS = ["STAZIONE CENTRALE", "ALIMENTARI", "VIA ROMA 12", "BANCA", "VIA VERDI 3", "SUPERMERCATO",
+         "VIA DANTE 7", "MINIMARKET", "UNIVERSITÀ", "VIA MILANO 21", "BENZINA"]
 DOOR_SPACING = 45.0                             # metres between two of the game's doors
 LAMP_REACH, LAMP_EVERY, LAMP_MAX = 280.0, 32.0, 80
+CHUNK = 300.0                                   # metres: the size of the pieces the city is cut into
 
-LAT0, LON0 = (S + N) / 2, (W + E) / 2
+LAT0, LON0 = CENTRE
 KY = 111320.0; KX = KY * math.cos(math.radians(LAT0))
 proj = lambda g: [((p["lon"] - LON0) * KX, (p["lat"] - LAT0) * KY) for p in g]
-HX, HY = (E - W) * KX / 2, (N - S) * KY / 2
+inside = lambda p: math.hypot(p[0], p[1]) < RADIUS
 random.seed(1)
 
 ROADW = {"motorway": 14, "trunk": 14, "primary": 12, "secondary": 10, "tertiary": 8, "residential": 6,
@@ -37,16 +40,31 @@ WALLS = [(0.80, 0.66, 0.42), (0.86, 0.80, 0.66), (0.72, 0.50, 0.36), (0.62, 0.60
 
 
 def download():
+    """Fetches the circle's bounding box in four quarters: one big request is often turned away."""
     cache = HERE / "osm.json"
-    if not cache.exists():
-        box = f"({S},{W},{N},{E})"
-        query = "[out:json][timeout:120];(" + "".join(f"{k}{box};" for k in (
+    if cache.exists(): return json.loads(cache.read_text())["elements"]
+    dy, dx = RADIUS / KY, RADIUS / KX
+    found = {}
+    for n, (s, w) in enumerate(((LAT0 - dy, LON0 - dx), (LAT0 - dy, LON0), (LAT0, LON0 - dx), (LAT0, LON0))):
+        box = f"({s},{w},{s + dy},{w + dx})"
+        query = "[out:json][timeout:170];(" + "".join(f"{k}{box};" for k in (
             'way["building"]', 'relation["building"]', 'way["highway"]',
             'way["leisure"="park"]', 'way["natural"="water"]')) + ");out geom;"
-        request = urllib.request.Request("https://overpass-api.de/api/interpreter",
-            urllib.parse.urlencode({"data": query}).encode(), {"User-Agent": "midalia-map-build/1"})
-        cache.write_bytes(urllib.request.urlopen(request, timeout=180).read())
-    return json.loads(cache.read_text())["elements"]
+        for attempt in range(1, 9):
+            try:
+                request = urllib.request.Request("https://overpass-api.de/api/interpreter",
+                    urllib.parse.urlencode({"data": query}).encode(), {"User-Agent": "midalia-map-build/1"})
+                data = json.loads(urllib.request.urlopen(request, timeout=240).read())
+                assert "remark" not in data, data["remark"]
+                break
+            except Exception as error:
+                print(f"quarter {n + 1}/4 attempt {attempt} failed: {str(error)[:80]}", flush=True)
+                time.sleep(30)
+        else: raise SystemExit("FAILED: OpenStreetMap download")
+        for e in data["elements"]: found[(e["type"], e["id"])] = e
+        print(f"quarter {n + 1}/4 downloaded, {len(found)} things so far", flush=True)
+    cache.write_text(json.dumps({"elements": list(found.values())}))
+    return list(found.values())
 
 
 def rings(parts):
@@ -72,8 +90,8 @@ def height(t):
 
 
 def read(elements):
-    """Sorts OSM into buildings [(outers, inners, height)], roads [(points, kind)] and flat areas."""
-    buildings, roads, areas = [], [], {"plaza": [], "park": [], "water": []}
+    """Sorts OSM into buildings [(outers, inners, height)], roads [(points, kind)], flat areas and the station's outline."""
+    buildings, roads, areas, station = [], [], {"plaza": [], "park": [], "water": []}, []
     for e in elements:
         t = e.get("tags", {})
         if e["type"] == "relation":
@@ -83,39 +101,56 @@ def read(elements):
         else:
             pts = proj(e["geometry"]); outers, inners = rings([pts]), []
         if "building" in t:
-            if outers and t.get("location") != "underground": buildings.append((outers, inners, height(t)))
+            if outers and inside(outers[0][0]) and t.get("location") != "underground": buildings.append((outers, inners, height(t)))
+            if t.get("name") == STATION: station += outers
         elif "highway" in t:
             k = t["highway"].replace("_link", "")
             if k in SKIP or t.get("tunnel") == "yes" or t.get("layer", "0").startswith("-"): continue
-            if outers and (t.get("area") == "yes" or k == "pedestrian"): areas["plaza"] += outers
-            else: roads.append((pts, k))
+            if outers and (t.get("area") == "yes" or k == "pedestrian"): areas["plaza"] += [r for r in outers if inside(r[0])]
+            else:
+                run = []                                  # a road is cut where it leaves the circle
+                for p in pts + [None]:
+                    if p is not None and inside(p): run.append(p)
+                    else:
+                        if len(run) > 1: roads.append((run, k))
+                        run = []
         elif outers:
-            areas["water" if t.get("natural") == "water" else "park"] += outers
-    return buildings, roads, areas
+            areas["water" if t.get("natural") == "water" else "park"] += [r for r in outers if inside(r[0])]
+    return buildings, roads, areas, station
 
 
-def place_doors(buildings, roads):
-    """Picks a real street-facing wall for each of the game's doors, clustered round the university."""
+def place_doors(buildings, roads, station):
+    """Picks a real street-facing wall for each of the game's doors, clustered round the station."""
     hub = Point((HUB[1] - LON0) * KX, (HUB[0] - LAT0) * KY)
     shapes = [Polygon(o).buffer(0) for outers, _, _ in buildings for o in outers if len(o) > 2]
     solid = STRtree(shapes)
     streets = [LineString(p) for p, k in roads if k in ROADW and k != "service" and len(p) > 1]
     street_tree = STRtree(streets)
-    found = []
+
+    def walls(shape):
+        """Each wall of a building long enough for a door, with clear ground in front: (distance from the hub, middle, outward)."""
+        for part in getattr(shape, "geoms", [shape]):
+            ring = list(orient(part).exterior.coords)    # anticlockwise, so outside is on the right
+            for (ax, ay), (bx, by) in zip(ring, ring[1:]):
+                L = math.hypot(bx - ax, by - ay)
+                if L < 9: continue
+                nx, ny = (by - ay) / L, -(bx - ax) / L
+                mx, my = (ax + bx) / 2, (ay + by) / 2
+                step = Point(mx + nx * 2.5, my + ny * 2.5)
+                if any(shapes[i].intersects(step.buffer(1.5)) for i in solid.query(step.buffer(1.5))): continue
+                yield Point(mx, my).distance(hub), mx, my, nx, ny
+
+    # The station's door goes on the real station, on the wall nearest the square in front of it.
+    found = [min(w for ring in station for w in walls(Polygon(ring).buffer(0)))]
+    rest = []
     for shape in shapes:
-        if shape.geom_type != "Polygon" or shape.distance(hub) > 450: continue
-        ring = list(orient(shape).exterior.coords)       # anticlockwise, so outside is on the right
-        for (ax, ay), (bx, by) in zip(ring, ring[1:]):
-            L = math.hypot(bx - ax, by - ay)
-            if L < 9: continue
-            nx, ny = (by - ay) / L, -(bx - ax) / L
-            mx, my = (ax + bx) / 2, (ay + by) / 2
-            step = Point(mx + nx * 2.5, my + ny * 2.5)
-            d = streets[street_tree.nearest(Point(mx, my))].distance(Point(mx, my))
-            if not 3 <= d <= 16 or streets[street_tree.nearest(step)].distance(step) >= d: continue
-            if any(shapes[i].intersects(step.buffer(1.5)) for i in solid.query(step.buffer(1.5))): continue
-            found.append((Point(mx, my).distance(hub), mx, my, nx, ny))
-    found.sort()
+        if shape.distance(hub) > 450: continue
+        for d, mx, my, nx, ny in walls(shape):
+            here, step = Point(mx, my), Point(mx + nx * 2.5, my + ny * 2.5)
+            to_street = streets[street_tree.nearest(here)].distance(here)
+            # A street runs past this wall, on this side of it.
+            if 3 <= to_street <= 16 and streets[street_tree.nearest(step)].distance(step) < to_street: rest.append((d, mx, my, nx, ny))
+    found += sorted(rest)
     doors = []
     for _, mx, my, nx, ny in found:
         if all(math.hypot(mx - d["x"], -my - d["z"]) >= DOOR_SPACING for d in doors):
@@ -162,41 +197,56 @@ def build_model(buildings, roads, areas):
         for m in mats: me.materials.append(m)
         scene.collection.objects.link(bpy.data.objects.new(name, me))
 
-    walls = [bmesh.new() for _ in WALLS]
+    # Everything is cut into square chunks, so the game only draws the ones near the player.
+    chunks = {}
+    def chunk(layer, x, y):
+        key = (layer, int(x // CHUNK), int(y // CHUNK))
+        if key not in chunks: chunks[key] = bmesh.new()
+        return chunks[key]
+
     for outers, inners, h in buildings:
-        bm = random.choice(walls)
+        bm = chunk("buildings", *outers[0][0])
         faces = fill(bm, outers, inners)
         if not faces: continue
+        colour = random.randrange(len(WALLS))
+        for f in faces: f.material_index = colour          # the walls take this over when extruded
         top = [f for f in bmesh.ops.extrude_face_region(bm, geom=faces)["geom"] if isinstance(f, BMFace)]
         bmesh.ops.translate(bm, vec=(0, 0, h), verts=list({v for f in top for v in f.verts}))
-        for f in top: f.material_index = 1
-    roof = mat("roof", (0.45, 0.20, 0.13))
-    for i, bm in enumerate(walls): emit(f"buildings_{i}", bm, mat(f"wall_{i}", WALLS[i]), roof)
+        for f in top: f.material_index = len(WALLS)        # roof
 
     # Flat things sit a hair above the ground and each other, so the player's feet stay on top.
-    road, path = bmesh.new(), bmesh.new()
     for pts, k in roads:
-        bm, w, z = (road, ROADW[k], 0.04) if k in ROADW else (path, 2.5, 0.03)
+        layer, w, z = ("roads", ROADW[k], 0.04) if k in ROADW else ("paths", 2.5, 0.03)
         for (ax, ay), (bx, by) in zip(pts, pts[1:]):
             L = math.hypot(bx - ax, by - ay)
             if L < 0.01: continue
             nx, ny = -(by - ay) / L * w / 2, (bx - ax) / L * w / 2
+            bm = chunk(layer, ax, ay)
             bm.faces.new([bm.verts.new(p) for p in ((ax - nx, ay - ny, z), (bx - nx, by - ny, z), (bx + nx, by + ny, z), (ax + nx, ay + ny, z))])
-    emit("roads", road, mat("asphalt", (0.035, 0.035, 0.04), 0.6)); emit("paths", path, mat("path", (0.30, 0.29, 0.27)))
-    for name, z, rgb in (("plaza", 0.02, (0.62, 0.60, 0.55)), ("park", 0.01, (0.13, 0.33, 0.10)), ("water", 0.01, (0.05, 0.20, 0.35))):
-        bm = bmesh.new()
-        for ring in areas[name]: fill(bm, [ring], z=z)
-        emit(name, bm, mat(name, rgb, 0.1 if name == "water" else 0.85))
+    for layer, z in (("plaza", 0.02), ("park", 0.01), ("water", 0.01)):
+        for ring in areas[layer]: fill(chunk(layer, *ring[0]), [ring], z=z)
+
+    house = [mat(f"wall_{i}", c) for i, c in enumerate(WALLS)] + [mat("roof", (0.45, 0.20, 0.13))]
+    flat = {"roads": mat("asphalt", (0.035, 0.035, 0.04), 0.6), "paths": mat("path", (0.30, 0.29, 0.27)),
+            "plaza": mat("plaza", (0.62, 0.60, 0.55)), "park": mat("park", (0.13, 0.33, 0.10)), "water": mat("water", (0.05, 0.20, 0.35), 0.1)}
+    for (layer, cx, cy), bm in chunks.items():
+        emit(f"{layer}_{cx}_{cy}", bm, *(house if layer == "buildings" else [flat[layer]]))
     g = bmesh.new()
-    g.faces.new([g.verts.new(p) for p in ((-HX, -HY, 0), (HX, -HY, 0), (HX, HY, 0), (-HX, HY, 0))])
+    g.faces.new([g.verts.new((RADIUS * math.cos(i * math.tau / 96), RADIUS * math.sin(i * math.tau / 96), 0)) for i in range(96)])
     emit("ground", g, mat("pavement", (0.42, 0.41, 0.39)))
-    bpy.ops.export_scene.gltf(filepath=str(HERE / "milan.glb"))
+    print("writing the model", flush=True)
+    glb = HERE / "milan.glb"
+    bpy.ops.export_scene.gltf(filepath=str(glb))
+    (HERE / "milan.glb.gz").write_bytes(gzip.compress(glb.read_bytes()))   # the game unpacks it as it loads
+    glb.unlink()
 
 
-buildings, roads, areas = read(download())
-places, lamps = place_doors(buildings, roads)
+buildings, roads, areas, station = read(download())
+print(f"{len(buildings)} buildings, {len(roads)} roads; placing doors", flush=True)
+places, lamps = place_doors(buildings, roads, station)
+print("doors placed; building the model", flush=True)
 (HERE / "places.json").write_text(json.dumps({
-    "credit": "Map data (c) OpenStreetMap contributors, ODbL", "half": [round(HX, 1), round(HY, 1)],
+    "credit": "Map data (c) OpenStreetMap contributors, ODbL", "radius": RADIUS,
     "places": places, "lamps": lamps}, ensure_ascii=False, indent=1))
 build_model(buildings, roads, areas)
 print(f"{len(buildings)} buildings, {len(roads)} roads, {len(lamps)} lamps, doors:", *places.items(), sep="\n")
