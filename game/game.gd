@@ -22,7 +22,7 @@ const SECRETS := [
 ]
 const SAVE_PATH := "user://midalia_save.json"
 ## Which street map a save's position belongs to. Change it when the streets move.
-const MAP := "milan-3"
+const MAP := "milan-4"
 
 var wellbeing: int
 var cash: int

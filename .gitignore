@@ -19,3 +19,5 @@ models/*.gguf
 world/milan/osm.json.gz
 world/milan/osm_tiles/
 addons/nobodywho/*.so
+# Downloaded source data for the map (OpenStreetMap, Comune di Milano DBT, LiDAR, aerial photos): large, re-fetched by scripts
+world/milan/sources/
