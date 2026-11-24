@@ -28,6 +28,7 @@ SIGNS = ["STAZIONE CENTRALE", "ALIMENTARI", "VIA ROMA 12", "BANCA", "VIA VERDI 3
 DOOR_SPACING = 45.0                             # metres between two of the game's doors
 LAMP_REACH, LAMP_EVERY, LAMP_MAX = 280.0, 32.0, 80
 TREE_ROW_EVERY, PARK_TREE_EVERY = 8.0, 220.0     # metres along a row of trees; square metres of park per tree
+SERVERS = ("https://overpass-api.de/api/interpreter", "https://overpass.openstreetmap.fr/api/interpreter")  # tried in turn
 TILES = 4                                       # the download is cut into TILES x TILES pieces
 CHUNK = 300.0                                   # metres: the size of the pieces the city is cut into
 
@@ -64,14 +65,14 @@ def download():
                  f'relation["type"="multipolygon"]{box};relation["building"]{box};);out geom;')
         for attempt in range(1, 13):
             try:
-                request = urllib.request.Request("https://overpass-api.de/api/interpreter",
+                request = urllib.request.Request(SERVERS[attempt % len(SERVERS)],
                     urllib.parse.urlencode({"data": query}).encode(), {"User-Agent": "midalia-map-build/1"})
                 data = json.loads(urllib.request.urlopen(request, timeout=240).read())
                 assert "remark" not in data, data["remark"]
                 break
             except Exception as error:
                 print(f"tile {n + 1}/{TILES * TILES} attempt {attempt} failed: {str(error)[:80]}", flush=True)
-                time.sleep(min(15 * attempt, 90))
+                time.sleep(min(5 * attempt, 60))
         else: raise SystemExit("FAILED: OpenStreetMap download")
         kept.write_text(json.dumps(data["elements"]))
         for e in data["elements"]: found[(e["type"], e["id"])] = e
