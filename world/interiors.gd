@@ -22,6 +22,9 @@ static func shell(parent: Node3D, origin: Vector3, width: float, height: float, 
 	Build.box(room, Vector3(width / 2 + 0.25, height / 2, 0), Vector3(0.5, height + 0.5, depth), wall, true)
 	Build.box(room, Vector3(0, 1.1, depth / 2 - 0.04), Vector3(1.3, 2.2, 0.08), DOOR)
 	Build.box(room, Vector3(0.45, 1.05, depth / 2 - 0.1), Vector3(0.08, 0.08, 0.08), Color(0.8, 0.7, 0.3))  # handle
+	# A lit green sign over the way out, so it can be found from across the room.
+	Build.glow(Build.box(room, Vector3(0, 2.5, depth / 2 - 0.05), Vector3(1.5, 0.4, 0.1), Color(0.05, 0.45, 0.2)), Color(0.2, 1.0, 0.45), 1.5)
+	Build.sign(room, Vector3(0, 2.5, depth / 2 - 0.11), "USCITA", 56, PI)
 	Build.trigger(room, Vector3(0, 1.2, depth / 2 - 0.8), Vector3(2.4, 2.4, 1.4), leave_prompt, leave_action)
 	return room
 
