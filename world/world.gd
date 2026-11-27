@@ -35,6 +35,7 @@ var _environment: Environment
 var _lamps: Array[OmniLight3D] = []
 var _walls: Array = []  # the city's wall materials; their windows light up at night
 var _hud: Hud
+var _map: Minimap
 var _phone: Phone
 var _talk: Talk
 var _wheel: WheelScreen
@@ -66,6 +67,10 @@ func _ready() -> void:
 
 	_hud = Hud.new()
 	add_child(_hud)
+	_map = Minimap.new()
+	for sign in _street_doors:
+		_map.places[sign] = _street_doors[sign][0]
+	add_child(_map)
 	_phone = Phone.new()
 	add_child(_phone)
 	_talk = Talk.new()
@@ -136,6 +141,9 @@ func _process(_delta: float) -> void:
 	for lamp in _lamps:
 		lamp.visible = daylight < 0.6
 	Milan.set_night(_walls, 1.0 - daylight)
+	# Indoors, the map shows the building's street door: the rooms themselves are built off the map.
+	_map.focus = _street_doors[_inside][0] if _street_doors.has(_inside) else _player.global_position
+	_map.facing = _player.facing()
 	if Game.wellbeing <= 0 and not _game_over and not Game.modal_open:
 		_show_game_over()
 

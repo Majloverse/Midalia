@@ -17,7 +17,7 @@ func _ready() -> void:
 	_message.position.y -= 90
 	var help := _label(Control.PRESET_BOTTOM_LEFT, 15)
 	help.position = Vector2(20, -40)
-	help.text = "WASD walk   Shift run   Space jump   Mouse look   E use   Tab phone   Esc free the mouse"
+	help.text = "WASD walk   Shift run   Space jump   Mouse look   E use   Tab phone   M map   Esc free the mouse"
 	help.modulate.a = 0.7
 	# A small dot in the middle of the screen: what it rests on is what a click picks up.
 	var dot := ColorRect.new()
