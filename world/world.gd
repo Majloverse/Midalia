@@ -11,17 +11,17 @@ extends Node3D
 const INTERIORS_AT := Vector3(3000, 0, 0)
 
 const PLACES := [
-	{"sign": "STAZIONE CENTRALE", "prompt": "Enter the station", "action": "enter"},
-	{"sign": "BANCA", "prompt": "Enter the bank", "action": "bank"},
-	{"sign": "UNIVERSITÀ", "prompt": "Enter the university", "action": "enter", "hours": [8, 20]},
-	{"sign": "VIA ROMA 12", "prompt": "Go up to the party", "action": "party"},
-	{"sign": "VIA VERDI 3", "prompt": "Ring the bell", "action": "flat"},
-	{"sign": "VIA DANTE 7", "prompt": "Ring the bell", "action": "flat"},
-	{"sign": "VIA MILANO 21", "prompt": "Ring the bell", "action": "flat"},
-	{"sign": "SUPERMERCATO", "prompt": "Enter the supermarket", "action": "enter", "hours": Settings.SUPERMARKET_HOURS},
-	{"sign": "ALIMENTARI", "prompt": "Enter the shop", "action": "enter", "hours": Settings.CORNER_SHOP_HOURS},
-	{"sign": "MINIMARKET", "prompt": "Enter the shop", "action": "enter", "hours": Settings.CORNER_SHOP_HOURS},
-	{"sign": "BENZINA", "prompt": "Enter the petrol station shop", "action": "enter"},
+	{"sign": "STAZIONE CENTRALE", "icon": "station", "prompt": "Enter the station", "action": "enter"},
+	{"sign": "BANCA", "icon": "bank", "prompt": "Enter the bank", "action": "bank"},
+	{"sign": "UNIVERSITÀ", "icon": "university", "prompt": "Enter the university", "action": "enter", "hours": [8, 20]},
+	{"sign": "VIA ROMA 12", "icon": "party", "prompt": "Go up to the party", "action": "party"},
+	{"sign": "VIA VERDI 3", "icon": "flat", "prompt": "Ring the bell", "action": "flat"},
+	{"sign": "VIA DANTE 7", "icon": "flat", "prompt": "Ring the bell", "action": "flat"},
+	{"sign": "VIA MILANO 21", "icon": "flat", "prompt": "Ring the bell", "action": "flat"},
+	{"sign": "SUPERMERCATO", "icon": "shop", "prompt": "Enter the supermarket", "action": "enter", "hours": Settings.SUPERMARKET_HOURS},
+	{"sign": "ALIMENTARI", "icon": "shop", "prompt": "Enter the shop", "action": "enter", "hours": Settings.CORNER_SHOP_HOURS},
+	{"sign": "MINIMARKET", "icon": "shop", "prompt": "Enter the shop", "action": "enter", "hours": Settings.CORNER_SHOP_HOURS},
+	{"sign": "BENZINA", "icon": "petrol", "prompt": "Enter the petrol station shop", "action": "enter"},
 ]
 ## Each student flat's walls and furniture colour.
 const FLAT_LOOKS := {
@@ -70,6 +70,8 @@ func _ready() -> void:
 	_map = Minimap.new()
 	for sign in _street_doors:
 		_map.places[sign] = _street_doors[sign][0]
+	for place in PLACES:
+		_map.icons[place.sign] = place.icon
 	add_child(_map)
 	_phone = Phone.new()
 	add_child(_phone)
@@ -92,6 +94,7 @@ func _ready() -> void:
 	add_child(_player)
 	_player.prompt_changed.connect(_hud.set_prompt)
 	_player.interacted.connect(_on_interact)
+	_map.route.skip = [_player.get_rid()]
 	Game.notice.connect(_hud.show_message)
 	Game.shelter_changed.connect(_refresh_flat_doors)
 	Game.night_ended.connect(_on_night_ended)
